@@ -1,4 +1,4 @@
-name: Build Completo do Zero (Ecrã Inteiro Absoluto - Correção Vite)
+name: Build Completo do Zero (Ecrã Inteiro Absoluto - Correção Bash)
 
 on:
   push:
@@ -43,7 +43,6 @@ jobs:
         rm -f capacitor.config.ts
         rm -f capacitor.config.js
         
-        # Configuração nativa sem declarar o plugin LocalNotifications no JSON
         echo '{
           "appId": "com.fighterlegendone.app",
           "appName": "Fighter Legend One",
@@ -71,19 +70,19 @@ jobs:
     - name: 8.5. Gerar Ícones Limpos (Evitar Recursos Duplicados)
       run: |
         if [ -f "icon.png" ]; then
-          node -e "
-            const fs = require('fs');
-            const path = require('path');
-            const sharp = require('sharp');
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const sharp = require("sharp");
             
-            const resDir = 'android/app/src/main/res';
+            const resDir = "android/app/src/main/res";
             if (fs.existsSync(resDir)) {
-              const foldersToClean = ['mipmap-anydpi-v26', 'mipmap-hdpi', 'mipmap-mdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
+              const foldersToClean = ["mipmap-anydpi-v26", "mipmap-hdpi", "mipmap-mdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"];
               foldersToClean.forEach(folder => {
                 const p = path.join(resDir, folder);
                 if (fs.existsSync(p)) {
                   fs.readdirSync(p).forEach(file => {
-                    if (file.includes('ic_launcher')) {
+                    if (file.includes("ic_launcher")) {
                       fs.unlinkSync(path.join(p, file));
                     }
                   });
@@ -91,11 +90,11 @@ jobs:
               });
 
               const resolutions = {
-                'mipmap-mdpi': 48,
-                'mipmap-hdpi': 72,
-                'mipmap-xhdpi': 96,
-                'mipmap-xxhdpi': 144,
-                'mipmap-xxxhdpi': 192
+                "mipmap-mdpi": 48,
+                "mipmap-hdpi": 72,
+                "mipmap-xhdpi": 96,
+                "mipmap-xxhdpi": 144,
+                "mipmap-xxxhdpi": 192
               };
 
               Object.keys(resolutions).forEach(folder => {
@@ -103,15 +102,15 @@ jobs:
                 if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
                 
                 const size = resolutions[folder];
-                const iconDest = path.join(folderPath, 'ic_launcher.png');
-                const iconRoundDest = path.join(folderPath, 'ic_launcher_round.png');
+                const iconDest = path.join(folderPath, "ic_launcher.png");
+                const iconRoundDest = path.join(folderPath, "ic_launcher_round.png");
 
-                sharp('icon.png').resize(size, size).toFile(iconDest);
-                sharp('icon.png').resize(size, size).toFile(iconRoundDest);
+                sharp("icon.png").resize(size, size).toFile(iconDest);
+                sharp("icon.png").resize(size, size).toFile(iconRoundDest);
               });
-              console.log('Ícones recriados com Sharp!');
+              console.log("Ícones recriados com Sharp!");
             }
-          "
+          '
         else
           echo "Aviso: icon.png não encontrado."
         fi
@@ -120,5 +119,43 @@ jobs:
       run: |
         MANIFEST="android/app/src/main/AndroidManifest.xml"
         if [ -f "$MANIFEST" ]; then
-          sed -i 's/android:screenOrientation="[^"]*"/android:screenOrientation="landscape"/' $MANIFEST
-          sed -i '/
+          sed -i 's/android:screenOrientation="[^"]*"/android:screenOrientation="landscape"/' "$MANIFEST"
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
+        fi
+
+        STYLES_FILE=$(find android/ -name "styles.xml" | head -n 1)
+        if [ -f "$STYLES_FILE" ]; then
+          node -e '
+            const fs = require("fs");
+            const filePath = process.argv[1];
+            let content = fs.readFileSync(filePath, "utf8");
+            const fullscreenConfig = "        <item name=\"android:windowFullscreen\">true</item>\n        <item name=\"android:windowContentOverlay\">@null</item>";
+            if (content.includes("</style>")) {
+              content = content.replace("</style>", fullscreenConfig + "\n    </style>");
+              fs.writeFileSync(filePath, content, "utf8");
+              console.log("Estilos configurados para Ecrã Inteiro!");
+            }
+          ' "$STYLES_FILE"
+        fi
+
+        MAIN_ACTIVITY=$(find android/ -name "MainActivity.java" | head -n 1)
+        if [ -f "$MAIN_ACTIVITY" ]; then
+          PACKAGE_LINE=$(grep "package" "$MAIN_ACTIVITY")
+          echo "$PACKAGE_LINE" > "$MAIN_ACTIVITY"
+          echo "" >> "$MAIN_ACTIVITY"
+          echo "import com.getcapacitor.BridgeActivity;" >> "$MAIN_ACTIVITY"
+          echo "" >> "$MAIN_ACTIVITY"
+          echo "public class MainActivity extends BridgeActivity {}" >> "$MAIN_ACTIVITY"
+        fi
+
+    - name: 10. Compilar o APK Final Completamente Limpo
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew clean assembleRelease
+
+    - name: 11. Liberar o APK para Download
+      uses: actions/upload-artifact@v4
+      with:
+        name: Fighter-Legend-One-APK
+        path: android/app/build/outputs/apk/release/app-release-unsigned.apk
