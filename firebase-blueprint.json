@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user progress, currency, and unlocked items.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "avatarId": { "type": "string", "maxLength": 50 },
+        "coins": { "type": "integer" },
+        "gems": { "type": "integer" },
+        "rouletteCoins": { "type": "object" },
+        "unlockedItems": { "type": "object" },
+        "unlockedCharacterIds": { "type": "array" },
+        "crystalBalances": { "type": "object" },
+        "evolutionLevels": { "type": "object" },
+        "bannerTokens": { "type": "object" },
+        "pityCounters": { "type": "object" },
+        "battlePass": { "type": "object" },
+        "role": { "type": "string", "enum": ["PLAYER", "ADMIN", "MODERATOR", "AMBASSADOR", "VETERAN"] },
+        "isBanned": { "type": "boolean" },
+        "wins": { "type": "integer" },
+        "losses": { "type": "integer" },
+        "ranked": { "type": "object" },
+        "numericId": { "type": "string", "pattern": "^[0-9]{8}$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "coins", "gems"]
+    },
+    "Session": {
+      "title": "User Session",
+      "description": "Tracks active user sessions to prevent multiple logins.",
+      "type": "object",
+      "properties": {
+        "session_token": { "type": "string" },
+        "account_id": { "type": "string" },
+        "device_id": { "type": "string" },
+        "login_timestamp": { "type": "integer" }
+      },
+      "required": ["session_token", "account_id"]
+    },
+    "Override": {
+      "title": "Game Override",
+      "description": "System-wide or per-character overrides for balance and staging.",
+      "type": "object",
+      "properties": {
+        "data": { "type": "object" }
+      }
+    },
+    "RankEntry": {
+      "title": "Global Ranking Entry",
+      "description": "Represents a player in the global leaderboard.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "avatarId": { "type": "string" },
+        "points": { "type": "integer" },
+        "tier": { "type": "string" },
+        "winRate": { "type": "number" },
+        "topCharacterId": { "type": "string" },
+        "lastUpdated": { "type": "integer" }
+      },
+      "required": ["userId", "name", "points"]
+    },
+    "GlobalMessage": {
+      "title": "Global Message",
+      "description": "System-wide notification or announcement.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "senderId": { "type": "string" },
+        "timestamp": { "type": "integer" }
+      },
+      "required": ["content", "timestamp"]
+    },
+    "GlobalChatMessage": {
+      "title": "Global Chat Message",
+      "description": "Real-time chat message in the global lobby.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "maxLength": 500 },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderAvatar": { "type": "string" },
+        "timestamp": { "type": "integer" }
+      },
+      "required": ["text", "senderId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile collection"
+    },
+    "/rankings/{userId}": {
+      "schema": "RankEntry",
+      "description": "Global leaderboard entries"
+    },
+    "/sessions/{userId}": {
+      "schema": "Session",
+      "description": "Active session tracking"
+    },
+    "/global_messages/{msgId}": {
+      "schema": "GlobalMessage",
+      "description": "System announcements"
+    },
+    "/global_chat/{msgId}": {
+      "schema": "GlobalChatMessage",
+      "description": "Global chat messages"
+    },
+    "/character_overrides/{charId}": {
+      "schema": "Override",
+      "description": "Character stat and animation overrides"
+    },
+    "/stage_overrides/{stageId}": {
+      "schema": "Override",
+      "description": "Stage visual and physics overrides"
+    },
+    "/engine_overrides/global": {
+      "schema": "Override",
+      "description": "Global engine physics and logic overrides"
+    },
+    "/system_config/{docId}": {
+      "schema": "Override",
+      "description": "System configuration and versioning"
+    }
+  }
+}

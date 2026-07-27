@@ -1,0 +1,9 @@
+{
+  "name": "Remix Fighter Legend One",
+  "description": "Jogo de luta 2D inspirado em Dragon Ball, com batalhas intensas, transformações poderosas, ataques especiais, modo online e offline, além de diversos personagens para desbloquear e dominar. Lute, evolua e prove sua força na arena!",
+  "orientation": "any",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

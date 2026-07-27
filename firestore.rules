@@ -1,0 +1,234 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- PUBLIC READ COLLECTIONS ---
+    match /system_config/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /character_overrides/{charId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /stage_overrides/{stageId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /engine_overrides/{engineId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /hall_of_fame/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'souzaoficialenois@gmail.com' ||
+        request.auth.token.email == 'admin@souza.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'PLAYER') == 'ADMIN')
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return (data.uid == request.auth.uid || data.userId == request.auth.uid) &&
+             (data.get('displayName', '') is string && data.get('displayName', '').size() <= 100) &&
+             (data.get('coins', 0) is int && data.get('coins', 0) >= 0) &&
+             (data.get('gems', 0) is int && data.get('gems', 0) >= 0) &&
+             (data.get('role', 'PLAYER') in ['PLAYER', 'VETERAN', 'AMBASSADOR', 'MODERATOR', 'ADMIN']);
+    }
+
+    function isValidRoom(data) {
+      return data.hostId is string &&
+             data.hostId.size() <= 128 &&
+             data.hostName is string &&
+             data.hostName.size() <= 24 &&
+             data.status in ['WAITING', 'PREPARING', 'SELECTION', 'STAGE_SELECT', 'VS', 'BATTLE', 'FINISHED'] &&
+             (data.id is string && data.id.size() >= 4 && data.id.size() <= 20);
+    }
+
+    function isRoomParticipant(data) {
+      return isSignedIn() && (data.get('hostId', '') == request.auth.uid || data.get('guestId', '') == request.auth.uid);
+    }
+
+    // --- Collections ---
+
+    // system_config - PUBLIC READ
+    // Moved to top
+
+    // room_invitations_v2
+    match /room_invitations_v2/{inviteId} {
+      allow read, get, list: if isSignedIn(); 
+      allow create: if isSignedIn() && incoming().hostId == request.auth.uid;
+      allow update: if isSignedIn() && (existing().inviteeId == request.auth.uid || existing().hostId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (existing().hostId == request.auth.uid || isAdmin());
+    }
+
+    // matchmaking_queue_v2
+    match /matchmaking_queue_v2/{userId} {
+      allow read, get, list: if isSignedIn();
+      allow create, update: if isOwner(userId) || isAdmin();
+      allow delete: if isSignedIn(); 
+    }
+
+    // online_rooms
+    match /online_rooms/{roomId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && 
+                      isValidRoom(incoming()) && 
+                      incoming().hostId == request.auth.uid &&
+                      isValidId(roomId);
+      allow update: if isRoomParticipant(existing()) || 
+                      (isSignedIn() && existing().get('guestId', '') == '') ||
+                      isAdmin();
+      allow delete: if isSignedIn() && (existing().hostId == request.auth.uid || isAdmin());
+    }
+
+    match /online_rooms_v2/{roomId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && 
+                      isValidRoom(incoming()) && 
+                      incoming().hostId == request.auth.uid &&
+                      isValidId(roomId);
+      allow update: if isRoomParticipant(existing()) || 
+                      (isSignedIn() && existing().get('guestId', '') == '') ||
+                      isAdmin();
+      allow delete: if isSignedIn() && (existing().hostId == request.auth.uid || isAdmin());
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      
+      allow create: if isOwner(userId) && 
+                      isValidUserProfile(incoming()) && 
+                      (incoming().get('role', 'PLAYER') == 'PLAYER' || isAdmin()) &&
+                      incoming().get('isBanned', false) == false;
+      
+      allow update: if (isOwner(userId) && 
+                      isValidUserProfile(incoming()) &&
+                      (incoming().get('role', 'PLAYER') == existing().get('role', 'PLAYER') || isAdmin()) &&
+                      (incoming().get('isBanned', false) == existing().get('isBanned', false) || isAdmin()))
+                      || isAdmin();
+      
+      allow delete: if isAdmin();
+
+      match /matches/{matchId} {
+        allow read: if isSignedIn();
+        allow write: if isOwner(userId) || isAdmin();
+      }
+
+      // Subcollections (default to owner or admin)
+      match /{allSubcollections=**} {
+        allow read: if isSignedIn();
+        allow write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    match /global_messages/{msgId} {
+      allow read, get, list: if isSignedIn();
+      allow create: if isSignedIn() && 
+                      incoming().senderId == request.auth.uid;
+    }
+
+    match /global_chat/{msgId} {
+      allow read, get, list: if isSignedIn();
+      allow create: if isSignedIn() && 
+                      incoming().senderId == request.auth.uid;
+    }
+
+    match /private_chats/{chatId}/messages/{msgId} {
+      allow read, get, list: if isSignedIn() && (chatId.matches(".*" + request.auth.uid + ".*"));
+      allow create: if isSignedIn() && (chatId.matches(".*" + request.auth.uid + ".*")) &&
+                      incoming().senderId == request.auth.uid &&
+                      incoming().timestamp == request.time;
+    }
+    
+    match /admins/{adminId} {
+      allow read, get, list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // character_overrides - PUBLIC READ
+    // Moved to top
+
+    // stage_overrides - PUBLIC READ
+    // Moved to top
+
+    // engine_overrides - PUBLIC READ
+    // Moved to top
+
+    // sessions - PUBLIC READ (Moved to top)
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /sessions/{sessionId}/leaderboard/{userId} {
+      allow read, get, list: if true;
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // Community Tournaments
+    match /community_tournaments/{tourneyId} {
+      allow read, get, list: if isSignedIn();
+      allow create: if isSignedIn() && incoming().creatorId == request.auth.uid && isValidId(tourneyId);
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && (existing().creatorId == request.auth.uid || isAdmin());
+    }
+
+    match /official_tournaments/{tourneyId} {
+      allow read, get, list: if isSignedIn();
+      allow write: if isAdmin() && isValidId(tourneyId);
+      allow update: if isSignedIn();
+    }
+    
+    match /rankings/{userId} {
+      allow read, get, list: if isSignedIn();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // hall_of_fame - PUBLIC READ
+    // Moved to top
+    
+    match /promo_codes/{code} {
+      allow read, get, list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 0. Global Safety Net (moved to end)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

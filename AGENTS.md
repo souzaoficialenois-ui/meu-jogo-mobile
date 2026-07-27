@@ -1,0 +1,7 @@
+# Instruções Customizadas
+
+* **Nome do Jogo**: O nome oficial do jogo é **Fighter Legend**. Este nome deve ser usado em todos os lugares, incluindo metadados, textos de interface e documentação. Nunca use "Dragon Duel" ou variações.
+* **Sequência de Animações e Importações Exatas**: Ao adicionar ou ajustar animações, gifs e assets (incluindo sprites de personagens, combos, pastas de `DRAGON DASH`, Genkidamas, projéteis/projetos, feixes/fechos de energia, e Beans), eu devo **sempre** seguir a sequência correta de animações (arquivos 1, 2, 3, etc. em ordem lógica: início, meio/loop, final). Sem adicionar mais ou menos animação do que o real, aplicando apenas a quantidade exata e correta no personagem, Beam ou elemento correspondente. Personagens, Beans, Genkidamas, feixes, etc., devem conter apenas o número exato de sequências de animações importadas.
+* **Verificação de Importação de Personagem**: Ao trabalhar com importações ou atualizações de animações, é obrigatório verificar a quantidade exata de arquivos/frames e a ordem de sequências no repositório de assets (exemplo: GitHub tree). Isso previne bugs gráficos (como loops travados ou frames incorretos) e evita referências a arquivos que deixaram de existir ou mudaram de nome.
+* **Evitar Erros**: Ao realizar modificações e escrever código, eu devo dedicar a máxima atenção para **evitar o máximo de erros possível**.
+* **Independência de Código**: Ao criar uma nova função para a batalha, ela deve ser **100% independente** (desacoplada).

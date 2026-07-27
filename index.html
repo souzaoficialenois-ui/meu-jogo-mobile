@@ -1,0 +1,78 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="Offline capable Dragon game" />
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+    <title>Fighter Legend</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Anton&family=Rajdhani:wght@500;700;900&display=swap" rel="stylesheet">
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      
+      body {
+        overscroll-behavior: none;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        background-color: #0f172a;
+        color: white;
+        font-family: 'Rajdhani', sans-serif;
+      }
+      
+      /* Anime Speed Line / Halftone Pattern */
+      .bg-anime-pattern {
+        background-color: #111827;
+        background-image: 
+          radial-gradient(circle at 50% 50%, #1f2937 0%, transparent 10%),
+          repeating-linear-gradient(45deg, #1f2937 0px, #1f2937 1px, transparent 1px, transparent 10px);
+        background-size: 20px 20px, 100% 100%;
+      }
+
+      .font-header {
+        font-family: 'Anton', system-ui;
+      }
+      
+      /* Hide Scrollbar but keep functionality */
+      .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+      }
+      .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+
+      /* Custom Scrollbar for messages */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.2); 
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #eab308; 
+        border-radius: 3px;
+      }
+
+      .mask-linear-fade {
+          mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
+          -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
+      }
+    </style>
+<link rel="stylesheet" href="/theme.css">
+</head>
+  <body>
+    <div id="root" style="width: 100%; height: 100%;"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
