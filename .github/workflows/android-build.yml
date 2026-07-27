@@ -1,4 +1,4 @@
-name: Build Completo do Zero (Ecrã Inteiro Absoluto - Remoção Forçada)
+name: Build Completo do Zero (Ecrã Inteiro Absoluto - Correção Vite)
 
 on:
   push:
@@ -27,28 +27,23 @@ jobs:
     - name: 4. Configurar o Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: 5. Instalar Dependências Puras e Expulsar Plugins de Notificação
+    - name: 5. Instalar Dependências (Incluindo Plugins para Satisfazer o Rollup)
       run: |
-        # Instala as dependências padrão do projeto
         npm install --legacy-peer-deps
-        
-        # Força a desinstalação completa dos plugins de notificação para garantir que o Capacitor não os injete no Android
-        npm uninstall @capacitor/local-notifications @capacitor/push-notifications --legacy-peer-deps
-        
-        # Alinha o núcleo do Capacitor e o Sharp para os ícones
-        npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest --legacy-peer-deps
+        npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor/local-notifications@latest --legacy-peer-deps
         npm install sharp --legacy-peer-deps
 
     - name: 6. Compilar o projeto React TS (Gera a pasta dist)
       run: npm run build
 
-    - name: 7. Criar a pasta Android Limpa
+    - name: 7. Criar a pasta Android Limpa sem Notificações Ativas
       run: |
         rm -rf android
         rm -f capacitor.config.json
         rm -f capacitor.config.ts
         rm -f capacitor.config.js
         
+        # Configuração nativa sem declarar o plugin LocalNotifications no JSON
         echo '{
           "appId": "com.fighterlegendone.app",
           "appName": "Fighter Legend One",
@@ -70,11 +65,10 @@ jobs:
 
     - name: 8. Sincronizar o código compilado com o Android
       run: |
-        # O update e sync agora vão rodar sem nenhum plugin de notificação na árvore de nós
         npx cap update android
         npx cap sync android
 
-    - name: 8.5. Gerar Ícones em Alta Resolução
+    - name: 8.5. Gerar Ícones Limpos (Evitar Recursos Duplicados)
       run: |
         if [ -f "icon.png" ]; then
           node -e "
@@ -84,10 +78,17 @@ jobs:
             
             const resDir = 'android/app/src/main/res';
             if (fs.existsSync(resDir)) {
-              const anyDpiDir = path.join(resDir, 'mipmap-anydpi-v26');
-              if (fs.existsSync(anyDpiDir)) {
-                fs.readdirSync(anyDpiDir).forEach(file => fs.unlinkSync(path.join(anyDpiDir, file)));
-              }
+              const foldersToClean = ['mipmap-anydpi-v26', 'mipmap-hdpi', 'mipmap-mdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
+              foldersToClean.forEach(folder => {
+                const p = path.join(resDir, folder);
+                if (fs.existsSync(p)) {
+                  fs.readdirSync(p).forEach(file => {
+                    if (file.includes('ic_launcher')) {
+                      fs.unlinkSync(path.join(p, file));
+                    }
+                  });
+                }
+              });
 
               const resolutions = {
                 'mipmap-mdpi': 48,
@@ -101,10 +102,6 @@ jobs:
                 const folderPath = path.join(resDir, folder);
                 if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
                 
-                fs.readdirSync(folderPath).forEach(file => {
-                  if (file.endsWith('.xml')) fs.unlinkSync(path.join(folderPath, file));
-                });
-
                 const size = resolutions[folder];
                 const iconDest = path.join(folderPath, 'ic_launcher.png');
                 const iconRoundDest = path.join(folderPath, 'ic_launcher_round.png');
@@ -112,54 +109,16 @@ jobs:
                 sharp('icon.png').resize(size, size).toFile(iconDest);
                 sharp('icon.png').resize(size, size).toFile(iconRoundDest);
               });
-              console.log('Ícones gerados com sucesso!');
+              console.log('Ícones recriados com Sharp!');
             }
           "
         else
           echo "Aviso: icon.png não encontrado."
         fi
 
-    - name: 9. Forçar Ecrã Inteiro e Ocultar Barra Superior
+    - name: 9. Forçar Ecrã Inteiro Absoluto no Manifesto e Estilos
       run: |
         MANIFEST="android/app/src/main/AndroidManifest.xml"
         if [ -f "$MANIFEST" ]; then
           sed -i 's/android:screenOrientation="[^"]*"/android:screenOrientation="landscape"/' $MANIFEST
-          sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.INTERNET" />' $MANIFEST
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' $MANIFEST
-        fi
-
-        STYLES_FILE=$(find android/ -name "styles.xml" | head -n 1)
-        if [ -f "$STYLES_FILE" ]; then
-          node -e "
-            const fs = require('fs');
-            let content = fs.readFileSync('$STYLES_FILE', 'utf8');
-            const fullscreenConfig = '        <item name=\"android:windowFullscreen\">true</item>\n        <item name=\"android:windowContentOverlay\">@null</item>';
-            if (content.includes('</style>')) {
-              content = content.replace('</style>', fullscreenConfig + '\n    </style>');
-              fs.writeFileSync('$STYLES_FILE', content, 'utf8');
-              console.log('Estilos configurados para Ecrã Inteiro!');
-            }
-          "
-        fi
-
-        MAIN_ACTIVITY=$(find android/ -name "MainActivity.java" | head -n 1)
-        if [ -f "$MAIN_ACTIVITY" ]; then
-          PACKAGE_LINE=$(grep "package" $MAIN_ACTIVITY)
-          echo "$PACKAGE_LINE" > $MAIN_ACTIVITY
-          echo "" >> $MAIN_ACTIVITY
-          echo "import com.getcapacitor.BridgeActivity;" >> $MAIN_ACTIVITY
-          echo "" >> $MAIN_ACTIVITY
-          echo "public class MainActivity extends BridgeActivity {}" >> $MAIN_ACTIVITY
-        fi
-
-    - name: 10. Compilar o APK Final Completamente Limpo
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew clean assembleRelease
-
-    - name: 11. Liberar o APK para Download
-      uses: actions/upload-artifact@v4
-      with:
-        name: Fighter-Legend-One-APK
-        path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          sed -i '/
