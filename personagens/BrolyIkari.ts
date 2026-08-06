@@ -200,17 +200,17 @@ export const BrolyIkari: CharacterData = {
 
       [PlayerState.CHARGE_START]: createGifAnim(URLS.carregando_ki_1, false, 8),
       [PlayerState.CHARGING]: {
-        imageUrl: URLS.carregando_ki_2,
-        frames: 2,
-        frameWidth: 52,
-        frameHeight: 67,
-        isGif: true,
-        speed: 8,
-        loop: true,
-        scale: 2.5,
-        offsetX: 0,
-        offsetY: 0,
-        auraConfigKey: "CHAVE_AURA_011"
+        "imageUrl": "/Assets/personagens/brolyikari/carregando_ki_2.gif",
+        "frames": 2,
+        "frameWidth": 52,
+        "frameHeight": 67,
+        "isGif": true,
+        "speed": 8,
+        "loop": true,
+        "scale": 2.5,
+        "offsetX": 0,
+        "offsetY": 0,
+        "auraConfigKey": "CHAVE_AURA_011"
       },
       [PlayerState.CHARGE_END]: createGifAnim(URLS.carregando_ki_3, false, 8),
 
@@ -371,7 +371,9 @@ export const BrolyIkari: CharacterData = {
       Especial_1_2: {
         ...createGifAnim(URLS.especial_1_2, false, 6),
         createsBeam: "CHAVE_BEAM_42",
-        effectConfigKey: "CHAVE_EFFECT_TELACHEIA_05_VERDE"
+        effectConfigKey: "CHAVE_EFFECT_TELACHEIA_05_VERDE",
+        offsetX: 0,
+        offsetY: 0
       },
       Especial_1_1_Ar: {
         ...createGifAnim(URLS.especial_1_1, false, 6),

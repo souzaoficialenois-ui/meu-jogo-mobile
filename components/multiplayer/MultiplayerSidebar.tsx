@@ -55,7 +55,7 @@ export const MultiplayerSidebar: React.FC<MultiplayerSidebarProps> = ({
                 {/* Profile Card Mini */}
                 <div className="p-4 bg-stone-900/40 rounded-xl border border-white/5 flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-orange-600 flex items-center justify-center text-white overflow-hidden">
-                        <img src={AVATAR_LIST.find(a => a.id === playerProfile?.avatarId)?.url || "/Assets/UI/avatar_placeholder.png"} alt="" className="w-full h-full object-cover" />
+                        <img src={AVATAR_LIST.find(a => a.id === playerProfile?.avatarId)?.url || "/Assets/avatar/retrato/1.png"} alt="" className="w-full h-full object-cover" />
                     </div>
                     <div className="flex flex-col min-w-0">
                         <span className="text-[10px] font-black text-white truncate uppercase italic">{playerProfile?.name || 'PLAYER'}</span>

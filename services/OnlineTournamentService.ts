@@ -19,6 +19,118 @@ import { CharacterData, PlayerProfile } from '../types';
 import { NameGenerator } from './NameGenerator';
 import { BASE_CHARACTERS } from '../constants';
 
+export interface DivisionMatch {
+    id: string;
+    divisionIndex: number; // 0 = Divisão 1, 1 = Divisão 2, etc.
+    divisionName: string;  // e.g. "Divisão 1 — Classificatória"
+    p1Id: string | null;
+    p2Id: string | null;
+    p1Name: string;
+    p2Name: string;
+    p1Avatar: string;
+    p2Avatar: string;
+    p1Team: string[];
+    p2Team: string[];
+    winnerId: string | null;
+    score1: number | string;
+    score2: number | string;
+    status: 'WAITING' | 'READY' | 'PLAYING' | 'FINISHED';
+    scheduledTime: number;
+    durationSeconds?: number;
+    isCpuVsCpu: boolean;
+    nextMatchId: string | null;
+}
+
+export interface PlayerDivisionProgress {
+    playerId: string;
+    uid: string;
+    name: string;
+    avatarId: string;
+    avatar: string;
+    numericId: string;
+    idNumber: string;
+    country: string;
+    countryFlag: string;
+    level: number;
+    title: string;
+    favoriteChar: string;
+    team: string[];
+    teamPower: number;
+    winRate: number;
+    winStreak: number;
+    highestDivisionReached: number;
+    divisionIndex: number;
+    highestDivisionName: string;
+    currentStatus: 'NOT_STARTED' | 'WAITING_OPPONENT' | 'READY_TO_PLAY' | 'IN_MATCH' | 'QUALIFIED' | 'ELIMINATED' | 'CHAMPION';
+    status: 'ACTIVE' | 'ELIMINATED' | 'WINNER';
+    wins: number;
+    losses: number;
+    points: number;
+    isCpu: boolean;
+}
+
+export interface DivisionTournament {
+    id: string;
+    title: string;
+    description: string;
+    bannerPreset: string; // 'POWER' | 'SAIYANS' | 'GODS' | 'LEGEND'
+    creatorId: string;
+    creatorName: string;
+    status: 'REGISTRATION' | 'ACTIVE' | 'FINISHED';
+    maxPlayers: number; // 8, 16, 32, 64
+    teamSize: number; // 1, 2, 3
+    region: string; // e.g. "SA - Brasil"
+    matchTimeLimit: number; // seconds, e.g. 180
+    rules: string;
+    registrationStartTime: number;
+    startDate: number;
+    subscriptionEndTime: number;
+    currentDivisionIndex: number;
+    divisions: {
+        id: string;
+        index: number;
+        name: string;
+        title: string;
+        status: 'PENDING' | 'ACTIVE' | 'COMPLETED';
+    }[];
+    players: string[]; // User IDs
+    playerDetails: Record<string, PlayerDivisionProgress>;
+    playersProgress: Record<string, PlayerDivisionProgress>;
+    matches: DivisionMatch[];
+    matchHistory: {
+        id: string;
+        divisionName: string;
+        p1Id: string;
+        p2Id: string;
+        p1Name: string;
+        p2Name: string;
+        p1Avatar: string;
+        p2Avatar: string;
+        p1Team: string[];
+        p2Team: string[];
+        winnerId: string;
+        score1: number;
+        score2: number;
+        durationSeconds: number;
+        timestamp: number;
+    }[];
+    rewards: {
+        coins: number;
+        gems: number;
+        tickets: number;
+        skin?: string;
+        character?: string;
+        title?: string;
+        emblem?: string;
+        specialItem?: string;
+    };
+    winnerUserId: string | null;
+    runnerUpUserId: string | null;
+    thirdPlaceUserId: string | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
 export interface OnlineMatch {
     id: string;
     round: number; // 0 for Round of 16, 1 for Quarters, 2 for Semis, 3 for Finals
@@ -108,6 +220,7 @@ export interface OfficialTournament {
     };
     currentPhase: 1 | 2 | 3 | null; // 1, 2, 3 for WITH_PHASES, null for WITHOUT_PHASES
     players: string[];
+    maxPlayers?: number;
     playerDetails: Record<string, {
         name: string;
         avatarId: string;
@@ -858,6 +971,13 @@ export class OnlineTournamentService {
                     [`phaseGroups.${phaseKey}`]: groups,
                     updatedAt: Date.now()
                 });
+
+                // Check if ALL matches in ALL groups of this phase are now completed
+                const allPhaseMatchesComplete = groups.every(g => g.matches.every(m => m.isComplete));
+                if (allPhaseMatchesComplete) {
+                    // Auto advance to the next phase
+                    await this.advanceOfficialPhase(tourneyId);
+                }
             } else {
                 // Mode 2 single tournament
                 // If all matches completed, conclude tournament
@@ -926,13 +1046,29 @@ export class OnlineTournamentService {
                 return;
             }
 
-            // Check if all player-involved matches in current phase groups are completed
+            // Check if all matches in current phase groups are completed
             const currPhaseKey = `phase${currPhase}` as 'phase1' | 'phase2' | 'phase3';
             const currGroups = tourney.phaseGroups?.[currPhaseKey];
             if (!currGroups) throw new Error("No phase groups active");
 
-            // Complete simulation of all other groups & matches
-            currGroups.forEach(g => this.simulateCpuMatchesInGroup(g));
+            // Verify that all matches in the current phase are finished before proceeding to next phase
+            const hasPendingHumanMatches = currGroups.some(g => 
+                g.matches.some(m => !m.isComplete && (m.p1Id !== 'cpu' || m.p2Id !== 'cpu'))
+            );
+
+            if (hasPendingHumanMatches) {
+                // If human matches are still pending, complete CPU matches first
+                currGroups.forEach(g => this.simulateCpuMatchesInGroup(g));
+                
+                // Re-check after simulating CPU matches
+                const stillPending = currGroups.some(g => g.matches.some(m => !m.isComplete));
+                if (stillPending) {
+                    throw new Error("A próxima fase só pode ser iniciada quando todas as lutas da fase anterior forem concluídas.");
+                }
+            } else {
+                // Complete remaining CPU matches if any
+                currGroups.forEach(g => this.simulateCpuMatchesInGroup(g));
+            }
 
             const nextPhase = (currPhase + 1) as 2 | 3;
             
@@ -1012,4 +1148,639 @@ export class OnlineTournamentService {
             console.error("Firestore Single Official Tournament sub failed:", error);
         });
     }
+
+    // ==========================================
+    // 🏆 DIVISION-BASED TOURNAMENT SYSTEM (SISTEMA DE TORNEIOS POR DIVISÕES)
+    // ==========================================
+
+    public generateDivisionNames(maxPlayers: number): { id: string; index: number; name: string; title: string; status: 'PENDING' | 'ACTIVE' | 'COMPLETED' }[] {
+        const list: { id: string; index: number; name: string; title: string; status: 'PENDING' | 'ACTIVE' | 'COMPLETED' }[] = [];
+        let count = maxPlayers;
+        let idx = 0;
+        while (count > 1) {
+            let label = `Divisão ${idx + 1}`;
+            if (count === 2) label += " — Grande Final";
+            else if (count === 4) label += " — Semifinal";
+            else if (count === 8) label += " — Quartas de Final";
+            else if (count === 16) label += " — Oitavas de Final";
+            else label += " — Classificatória";
+
+            list.push({ id: `div_${idx}`, index: idx, name: label, title: label, status: idx === 0 ? 'PENDING' : 'PENDING' });
+            count = Math.floor(count / 2);
+            idx++;
+        }
+        return list;
+    }
+
+    public async createDivisionTournament(
+        title: string,
+        description: string,
+        bannerPreset: string,
+        maxPlayers: number,
+        teamSize: number,
+        region: string,
+        matchTimeLimit: number,
+        rules: string,
+        rewards: any,
+        subEndMinutes: number,
+        startDateOffsetMinutes: number,
+        creator: PlayerProfile,
+        creatorTeam: string[]
+    ): Promise<string> {
+        if (!auth.currentUser) throw new Error("Must be logged in to create tournament");
+
+        const tourneyId = 'dt_' + Math.floor(100000 + Math.random() * 899999).toString();
+        const docRef = doc(db, 'division_tournaments', tourneyId);
+
+        const divisions = this.generateDivisionNames(maxPlayers);
+        const countries = ["🇧🇷 Brasil", "🇺🇸 EUA", "🇯🇵 Japão", "🇲🇽 México", "🇫🇷 França", "🇪🇸 Espanha", "🇦🇷 Argentina"];
+        const titles = ["Lenda Saiyajin", "Guerreiro Z", "Mestre das Artes", "Campeão do Poder", "Supremo Conquistador"];
+
+        const userProgress: PlayerDivisionProgress = {
+            playerId: auth.currentUser.uid,
+            uid: auth.currentUser.uid,
+            name: creator.name,
+            avatarId: creator.avatarId || 'goku_base',
+            avatar: creator.avatarId || 'goku_base',
+            numericId: creator.numericId || '0000',
+            idNumber: creator.numericId || '0000',
+            country: countries[Math.floor(Math.random() * countries.length)],
+            countryFlag: "🇧🇷",
+            level: Math.floor(35 + Math.random() * 30),
+            title: creator.activeTitle || titles[Math.floor(Math.random() * titles.length)],
+            favoriteChar: creatorTeam[0] || 'goku_base',
+            team: creatorTeam && creatorTeam.length > 0 ? creatorTeam : ['goku_base'],
+            teamPower: Math.floor(14000 + Math.random() * 4000),
+            winRate: Math.floor(65 + Math.random() * 25),
+            winStreak: Math.floor(2 + Math.random() * 5),
+            highestDivisionReached: 0,
+            divisionIndex: 0,
+            highestDivisionName: divisions[0]?.name || "Divisão 1",
+            currentStatus: 'NOT_STARTED',
+            status: 'ACTIVE',
+            wins: 0,
+            losses: 0,
+            points: 0,
+            isCpu: false
+        };
+
+        const now = Date.now();
+        const newTourney: DivisionTournament = {
+            id: tourneyId,
+            title: title.toUpperCase() || "GRANDE TORNEIO DE DIVISÕES",
+            description: description || "Competição oficial por divisões progressivas.",
+            bannerPreset: bannerPreset || "POWER",
+            creatorId: auth.currentUser.uid,
+            creatorName: creator.name,
+            status: 'REGISTRATION',
+            maxPlayers: [8, 16, 32, 64].includes(maxPlayers) ? maxPlayers : 32,
+            teamSize: [1, 2, 3].includes(teamSize) ? teamSize : 3,
+            region: region || "SA - Brasil",
+            matchTimeLimit: matchTimeLimit || 180,
+            rules: rules || "Batalha oficial sem itens proibidos.",
+            registrationStartTime: now,
+            startDate: now + (startDateOffsetMinutes * 60 * 1000),
+            subscriptionEndTime: now + (subEndMinutes * 60 * 1000),
+            currentDivisionIndex: 0,
+            divisions,
+            players: [auth.currentUser.uid],
+            playerDetails: {
+                [auth.currentUser.uid]: userProgress
+            },
+            playersProgress: {
+                [auth.currentUser.uid]: userProgress
+            },
+            matches: [],
+            matchHistory: [],
+            rewards: rewards || { coins: 10000, gems: 250, tickets: 10, title: "Lenda Supremo" },
+            winnerUserId: null,
+            runnerUpUserId: null,
+            thirdPlaceUserId: null,
+            createdAt: now,
+            updatedAt: now
+        };
+
+        try {
+            await setDoc(docRef, newTourney);
+            return tourneyId;
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, `division_tournaments/${tourneyId}`);
+            throw error;
+        }
+    }
+
+    public async joinDivisionTournament(tourneyId: string, profile: PlayerProfile, team: string[]): Promise<void> {
+        if (!auth.currentUser) throw new Error("Must be logged in to join");
+        const docRef = doc(db, 'division_tournaments', tourneyId);
+
+        try {
+            const snap = await getDoc(docRef);
+            if (!snap.exists()) throw new Error("Torneio não encontrado");
+
+            const tourney = snap.data() as DivisionTournament;
+            if (tourney.status !== 'REGISTRATION') throw new Error("Inscrições encerradas");
+            if (tourney.players.includes(auth.currentUser.uid)) return; // Already in
+            if (tourney.players.length >= tourney.maxPlayers) throw new Error("Torneio lotado");
+
+            const countries = ["🇧🇷 Brasil", "🇺🇸 EUA", "🇯🇵 Japão", "🇲🇽 México", "🇫🇷 França", "🇪🇸 Espanha", "🇦🇷 Argentina"];
+            const titlesList = ["Guerreiro Z", "Mestre Combatente", "Lenda Saiyajin", "Predador Cósmico"];
+
+            const countryVal = countries[Math.floor(Math.random() * countries.length)];
+
+            const userProgress: PlayerDivisionProgress = {
+                playerId: auth.currentUser.uid,
+                uid: auth.currentUser.uid,
+                name: profile.name,
+                avatarId: profile.avatarId || 'goku_base',
+                avatar: profile.avatarId || 'goku_base',
+                numericId: profile.numericId || '0000',
+                idNumber: profile.numericId || '0000',
+                country: countryVal,
+                countryFlag: countryVal.split(" ")[0] || "🇧🇷",
+                level: Math.floor(30 + Math.random() * 35),
+                title: profile.activeTitle || titlesList[Math.floor(Math.random() * titlesList.length)],
+                favoriteChar: team[0] || 'goku_base',
+                team: team && team.length > 0 ? team : ['goku_base'],
+                teamPower: Math.floor(13500 + Math.random() * 4500),
+                winRate: Math.floor(60 + Math.random() * 30),
+                winStreak: Math.floor(1 + Math.random() * 4),
+                highestDivisionReached: 0,
+                divisionIndex: 0,
+                highestDivisionName: tourney.divisions[0]?.name || "Divisão 1",
+                currentStatus: 'NOT_STARTED',
+                status: 'ACTIVE',
+                wins: 0,
+                losses: 0,
+                points: 0,
+                isCpu: false
+            };
+
+            const updatedPlayers = [...tourney.players, auth.currentUser.uid];
+            const updatedDetails = { ...tourney.playerDetails, [auth.currentUser.uid]: userProgress };
+
+            await updateDoc(docRef, {
+                players: updatedPlayers,
+                playerDetails: updatedDetails,
+                playersProgress: updatedDetails,
+                updatedAt: Date.now()
+            });
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, `division_tournaments/${tourneyId}`);
+            throw error;
+        }
+    }
+
+    public async leaveDivisionTournament(tourneyId: string): Promise<void> {
+        if (!auth.currentUser) throw new Error("Must be logged in");
+        const docRef = doc(db, 'division_tournaments', tourneyId);
+
+        try {
+            const snap = await getDoc(docRef);
+            if (!snap.exists()) return;
+
+            const tourney = snap.data() as DivisionTournament;
+            if (tourney.status !== 'REGISTRATION') throw new Error("Torneio em andamento");
+            if (!tourney.players.includes(auth.currentUser.uid)) return;
+
+            const updatedPlayers = tourney.players.filter(p => p !== auth.currentUser!.uid);
+            const updatedDetails = { ...tourney.playerDetails };
+            delete updatedDetails[auth.currentUser.uid];
+
+            await updateDoc(docRef, {
+                players: updatedPlayers,
+                playerDetails: updatedDetails,
+                updatedAt: Date.now()
+            });
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, `division_tournaments/${tourneyId}`);
+            throw error;
+        }
+    }
+
+    public async startDivisionTournament(tourneyId: string): Promise<void> {
+        const docRef = doc(db, 'division_tournaments', tourneyId);
+
+        try {
+            const snap = await getDoc(docRef);
+            if (!snap.exists()) throw new Error("Torneio não encontrado");
+
+            const tourney = snap.data() as DivisionTournament;
+            if (tourney.status !== 'REGISTRATION') throw new Error("Torneio já iniciado");
+
+            const totalNeeded = tourney.maxPlayers;
+            const finalPlayersList = [...tourney.players];
+            const finalDetails = { ...tourney.playerDetails };
+
+            const allBaseChars = BASE_CHARACTERS.map(c => c.id).filter(id => id !== 'random');
+            const countries = ["🇧🇷 Brasil", "🇺🇸 EUA", "🇯🇵 Japão", "🇲🇽 México", "🇫🇷 França", "🇪🇸 Espanha", "🇦🇷 Argentina", "🇨🇱 Chile"];
+            const titlesList = ["Guardião Galáctico", "Mestre do Instinto", "Lenda dos Torneios", "Lutador de Elite", "Sombra da Noite"];
+
+            // Fill CPU participants if needed
+            while (finalPlayersList.length < totalNeeded) {
+                const cpuId = 'cpu_' + Math.floor(100000 + Math.random() * 899999).toString();
+                const cpuName = NameGenerator.generate();
+                finalPlayersList.push(cpuId);
+
+                const cpuTeam: string[] = [];
+                for (let i = 0; i < tourney.teamSize; i++) {
+                    const rChar = allBaseChars[Math.floor(Math.random() * allBaseChars.length)];
+                    cpuTeam.push(rChar);
+                }
+
+                const countryVal = countries[Math.floor(Math.random() * countries.length)];
+                const numId = Math.floor(1000 + Math.random() * 9000).toString();
+
+                finalDetails[cpuId] = {
+                    playerId: cpuId,
+                    uid: cpuId,
+                    name: cpuName,
+                    avatarId: cpuTeam[0],
+                    avatar: cpuTeam[0],
+                    numericId: numId,
+                    idNumber: numId,
+                    country: countryVal,
+                    countryFlag: countryVal.split(" ")[0] || "🇧🇷",
+                    level: Math.floor(25 + Math.random() * 45),
+                    title: titlesList[Math.floor(Math.random() * titlesList.length)],
+                    favoriteChar: cpuTeam[0],
+                    team: cpuTeam,
+                    teamPower: Math.floor(12000 + Math.random() * 5000),
+                    winRate: Math.floor(50 + Math.random() * 35),
+                    winStreak: Math.floor(1 + Math.random() * 4),
+                    highestDivisionReached: 0,
+                    divisionIndex: 0,
+                    highestDivisionName: tourney.divisions[0]?.name || "Divisão 1",
+                    currentStatus: 'WAITING_OPPONENT',
+                    status: 'ACTIVE',
+                    wins: 0,
+                    losses: 0,
+                    points: 0,
+                    isCpu: true
+                };
+            }
+
+            // Shuffle players for Division 1
+            const shuffled = [...finalPlayersList].sort(() => Math.random() - 0.5);
+
+            // Generate Division 1 Matches & Tree Links for subsequent divisions
+            const matches: DivisionMatch[] = [];
+            const numDivisions = tourney.divisions.length;
+            const now = Date.now();
+
+            // Build total matches skeleton backwards from Final (divisionIndex = numDivisions - 1) down to 0
+            let prevDivisionMatchIds: string[] = [];
+            for (let d = numDivisions - 1; d >= 0; d--) {
+                const matchCount = Math.pow(2, numDivisions - 1 - d);
+                const currentDivisionMatchIds: string[] = [];
+                const divName = tourney.divisions[d].name;
+
+                for (let m = 0; m < matchCount; m++) {
+                    const matchId = `dm_${d}_${m}`;
+                    currentDivisionMatchIds.push(matchId);
+
+                    const nextMatchId = prevDivisionMatchIds.length > 0 ? prevDivisionMatchIds[Math.floor(m / 2)] : null;
+
+                    if (d === 0) {
+                        // Division 1: assign initial shuffled players
+                        const p1 = shuffled[m * 2];
+                        const p2 = shuffled[m * 2 + 1];
+
+                        finalDetails[p1].currentStatus = 'READY_TO_PLAY';
+                        finalDetails[p2].currentStatus = 'READY_TO_PLAY';
+
+                        matches.push({
+                            id: matchId,
+                            divisionIndex: 0,
+                            divisionName: divName,
+                            p1Id: p1,
+                            p2Id: p2,
+                            p1Name: finalDetails[p1].name,
+                            p2Name: finalDetails[p2].name,
+                            p1Avatar: finalDetails[p1].avatarId,
+                            p2Avatar: finalDetails[p2].avatarId,
+                            p1Team: finalDetails[p1].team,
+                            p2Team: finalDetails[p2].team,
+                            winnerId: null,
+                            score1: '-',
+                            score2: '-',
+                            status: 'READY',
+                            scheduledTime: now,
+                            isCpuVsCpu: p1.startsWith('cpu_') && p2.startsWith('cpu_'),
+                            nextMatchId
+                        });
+                    } else {
+                        matches.push({
+                            id: matchId,
+                            divisionIndex: d,
+                            divisionName: divName,
+                            p1Id: null,
+                            p2Id: null,
+                            p1Name: 'Aguardando',
+                            p2Name: 'Aguardando',
+                            p1Avatar: 'goku_base',
+                            p2Avatar: 'goku_base',
+                            p1Team: [],
+                            p2Team: [],
+                            winnerId: null,
+                            score1: '-',
+                            score2: '-',
+                            status: 'WAITING',
+                            scheduledTime: now + (d * 5 * 60 * 1000),
+                            isCpuVsCpu: false,
+                            nextMatchId
+                        });
+                    }
+                }
+                prevDivisionMatchIds = currentDivisionMatchIds;
+            }
+
+            // Update divisions status
+            const updatedDivisions = tourney.divisions.map((div, i) => ({
+                ...div,
+                status: (i === 0 ? 'ACTIVE' : 'PENDING') as 'ACTIVE' | 'PENDING'
+            }));
+
+            await updateDoc(docRef, {
+                status: 'ACTIVE',
+                currentDivisionIndex: 0,
+                divisions: updatedDivisions,
+                players: finalPlayersList,
+                playerDetails: finalDetails,
+                playersProgress: finalDetails,
+                matches,
+                updatedAt: Date.now()
+            });
+
+            // Simulate CPU vs CPU matches in Division 1
+            await this.simulateDivisionCpuMatches(tourneyId);
+
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, `division_tournaments/${tourneyId}`);
+            throw error;
+        }
+    }
+
+    public async simulateDivisionCpuMatches(tourneyId: string): Promise<void> {
+        const docRef = doc(db, 'division_tournaments', tourneyId);
+
+        try {
+            const snap = await getDoc(docRef);
+            if (!snap.exists()) return;
+
+            const tourney = snap.data() as DivisionTournament;
+            if (tourney.status !== 'ACTIVE') return;
+
+            let changesMade = false;
+            const updatedMatches = [...tourney.matches];
+            const updatedDetails = { ...tourney.playerDetails };
+            const updatedMatchHistory = [...(tourney.matchHistory || [])];
+
+            updatedMatches.forEach(match => {
+                if (match.p1Id && match.p2Id && !match.winnerId && match.isCpuVsCpu && (match.status === 'READY' || match.status === 'WAITING')) {
+                    const seed = match.id.charCodeAt(match.id.length - 1) + match.p1Id.charCodeAt(0) + match.p2Id.charCodeAt(0);
+                    const isP1Winner = seed % 2 === 0;
+
+                    const winnerId = isP1Winner ? match.p1Id : match.p2Id;
+                    const loserId = isP1Winner ? match.p2Id : match.p1Id;
+
+                    const score1 = isP1Winner ? 2 : Math.floor(Math.random() * 2);
+                    const score2 = isP1Winner ? Math.floor(Math.random() * 2) : 2;
+
+                    match.winnerId = winnerId;
+                    match.score1 = score1;
+                    match.score2 = score2;
+                    match.status = 'FINISHED';
+                    changesMade = true;
+
+                    // Update playerDetails stats
+                    if (updatedDetails[winnerId]) {
+                        updatedDetails[winnerId].wins += 1;
+                        updatedDetails[winnerId].points += 100 + (match.divisionIndex * 50);
+                        updatedDetails[winnerId].highestDivisionReached = Math.max(updatedDetails[winnerId].highestDivisionReached, match.divisionIndex + 1);
+                        updatedDetails[winnerId].highestDivisionName = tourney.divisions[match.divisionIndex + 1]?.name || tourney.divisions[match.divisionIndex].name;
+                        updatedDetails[winnerId].currentStatus = 'QUALIFIED';
+                    }
+                    if (updatedDetails[loserId]) {
+                        updatedDetails[loserId].losses += 1;
+                        updatedDetails[loserId].currentStatus = 'ELIMINATED';
+                    }
+
+                    // Add to match history
+                    updatedMatchHistory.push({
+                        id: match.id,
+                        divisionName: match.divisionName,
+                        p1Id: match.p1Id,
+                        p2Id: match.p2Id,
+                        p1Name: match.p1Name,
+                        p2Name: match.p2Name,
+                        p1Avatar: match.p1Avatar,
+                        p2Avatar: match.p2Avatar,
+                        p1Team: match.p1Team,
+                        p2Team: match.p2Team,
+                        winnerId,
+                        score1: Number(score1),
+                        score2: Number(score2),
+                        durationSeconds: Math.floor(60 + Math.random() * 120),
+                        timestamp: Date.now()
+                    });
+
+                    // Propagate to next match
+                    if (match.nextMatchId) {
+                        const nextMatch = updatedMatches.find(m => m.id === match.nextMatchId);
+                        if (nextMatch) {
+                            const winnerDetail = updatedDetails[winnerId];
+                            if (!nextMatch.p1Id) {
+                                nextMatch.p1Id = winnerId;
+                                nextMatch.p1Name = winnerDetail.name;
+                                nextMatch.p1Avatar = winnerDetail.avatarId;
+                                nextMatch.p1Team = winnerDetail.team;
+                            } else {
+                                nextMatch.p2Id = winnerId;
+                                nextMatch.p2Name = winnerDetail.name;
+                                nextMatch.p2Avatar = winnerDetail.avatarId;
+                                nextMatch.p2Team = winnerDetail.team;
+                                nextMatch.status = 'READY';
+                            }
+                            nextMatch.isCpuVsCpu = !!(nextMatch.p1Id?.startsWith('cpu_') && nextMatch.p2Id?.startsWith('cpu_'));
+                        }
+                    }
+                }
+            });
+
+            if (changesMade) {
+                await updateDoc(docRef, {
+                    matches: updatedMatches,
+                    playerDetails: updatedDetails,
+                    matchHistory: updatedMatchHistory,
+                    updatedAt: Date.now()
+                });
+
+                // Recursively simulate next available CPU vs CPU matches
+                await this.simulateDivisionCpuMatches(tourneyId);
+            }
+        } catch (e) {
+            console.error("Error simulating division CPU matches:", e);
+        }
+    }
+
+    public async reportDivisionMatchResult(
+        tourneyId: string,
+        matchId: string,
+        winnerId: string,
+        scoreP1: number,
+        scoreP2: number,
+        durationSeconds: number = 120
+    ): Promise<void> {
+        const docRef = doc(db, 'division_tournaments', tourneyId);
+
+        try {
+            const snap = await getDoc(docRef);
+            if (!snap.exists()) throw new Error("Torneio não encontrado");
+
+            const tourney = snap.data() as DivisionTournament;
+            const updatedMatches = [...tourney.matches];
+            const updatedDetails = { ...tourney.playerDetails };
+            const updatedMatchHistory = [...(tourney.matchHistory || [])];
+
+            const matchIndex = updatedMatches.findIndex(m => m.id === matchId);
+            if (matchIndex === -1) throw new Error("Partida não encontrada");
+
+            const match = updatedMatches[matchIndex];
+            const loserId = winnerId === match.p1Id ? match.p2Id : match.p1Id;
+
+            match.winnerId = winnerId;
+            match.score1 = scoreP1;
+            match.score2 = scoreP2;
+            match.status = 'FINISHED';
+
+            // Update winner and loser details
+            if (winnerId && updatedDetails[winnerId]) {
+                updatedDetails[winnerId].wins += 1;
+                updatedDetails[winnerId].points += 100 + (match.divisionIndex * 50);
+                updatedDetails[winnerId].highestDivisionReached = Math.max(updatedDetails[winnerId].highestDivisionReached, match.divisionIndex + 1);
+                updatedDetails[winnerId].highestDivisionName = tourney.divisions[match.divisionIndex + 1]?.name || tourney.divisions[match.divisionIndex].name;
+                updatedDetails[winnerId].currentStatus = 'QUALIFIED';
+            }
+            if (loserId && updatedDetails[loserId]) {
+                updatedDetails[loserId].losses += 1;
+                updatedDetails[loserId].currentStatus = 'ELIMINATED';
+            }
+
+            // Push to history
+            if (match.p1Id && match.p2Id) {
+                updatedMatchHistory.push({
+                    id: match.id,
+                    divisionName: match.divisionName,
+                    p1Id: match.p1Id,
+                    p2Id: match.p2Id,
+                    p1Name: match.p1Name,
+                    p2Name: match.p2Name,
+                    p1Avatar: match.p1Avatar,
+                    p2Avatar: match.p2Avatar,
+                    p1Team: match.p1Team,
+                    p2Team: match.p2Team,
+                    winnerId,
+                    score1: scoreP1,
+                    score2: scoreP2,
+                    durationSeconds,
+                    timestamp: Date.now()
+                });
+            }
+
+            const isFinalMatch = match.divisionIndex === tourney.divisions.length - 1;
+            let status = tourney.status;
+            let winnerUserId = tourney.winnerUserId;
+            let runnerUpUserId = tourney.runnerUpUserId;
+            let thirdPlaceUserId = tourney.thirdPlaceUserId;
+
+            if (isFinalMatch) {
+                status = 'FINISHED';
+                winnerUserId = winnerId;
+                runnerUpUserId = loserId;
+
+                if (winnerUserId && updatedDetails[winnerUserId]) {
+                    updatedDetails[winnerUserId].currentStatus = 'CHAMPION';
+                }
+
+                // Determine 3rd place from semi-final losers
+                const semiMatches = updatedMatches.filter(m => m.divisionIndex === tourney.divisions.length - 2);
+                const semiLosers = semiMatches.map(m => m.winnerId === m.p1Id ? m.p2Id : m.p1Id).filter(Boolean);
+                thirdPlaceUserId = semiLosers[0] || null;
+            } else if (match.nextMatchId) {
+                // Propagate to next match
+                const nextMatch = updatedMatches.find(m => m.id === match.nextMatchId);
+                if (nextMatch) {
+                    const winnerDetail = updatedDetails[winnerId];
+                    if (!nextMatch.p1Id) {
+                        nextMatch.p1Id = winnerId;
+                        nextMatch.p1Name = winnerDetail.name;
+                        nextMatch.p1Avatar = winnerDetail.avatarId;
+                        nextMatch.p1Team = winnerDetail.team;
+                    } else {
+                        nextMatch.p2Id = winnerId;
+                        nextMatch.p2Name = winnerDetail.name;
+                        nextMatch.p2Avatar = winnerDetail.avatarId;
+                        nextMatch.p2Team = winnerDetail.team;
+                        nextMatch.status = 'READY';
+                    }
+                    nextMatch.isCpuVsCpu = !!(nextMatch.p1Id?.startsWith('cpu_') && nextMatch.p2Id?.startsWith('cpu_'));
+                }
+            }
+
+            // Check if current division is complete to advance currentDivisionIndex
+            let currentDivisionIndex = tourney.currentDivisionIndex;
+            const currDivMatches = updatedMatches.filter(m => m.divisionIndex === currentDivisionIndex);
+            if (currDivMatches.every(m => m.status === 'FINISHED')) {
+                if (currentDivisionIndex < tourney.divisions.length - 1) {
+                    currentDivisionIndex++;
+                }
+            }
+
+            const updatedDivisions = tourney.divisions.map((div, i) => ({
+                ...div,
+                status: (i < currentDivisionIndex ? 'COMPLETED' : i === currentDivisionIndex ? 'ACTIVE' : 'PENDING') as 'COMPLETED' | 'ACTIVE' | 'PENDING'
+            }));
+
+            await updateDoc(docRef, {
+                status,
+                currentDivisionIndex,
+                divisions: updatedDivisions,
+                matches: updatedMatches,
+                playerDetails: updatedDetails,
+                matchHistory: updatedMatchHistory,
+                winnerUserId,
+                runnerUpUserId,
+                thirdPlaceUserId,
+                updatedAt: Date.now()
+            });
+
+            // Simulate CPU vs CPU matches unlocked in next divisions
+            await this.simulateDivisionCpuMatches(tourneyId);
+
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, `division_tournaments/${tourneyId}`);
+            throw error;
+        }
+    }
+
+    public subscribeToDivisionTournaments(onUpdate: (tourneys: DivisionTournament[]) => void) {
+        const q = query(collection(db, 'division_tournaments'), orderBy('createdAt', 'desc'), limit(15));
+        return onSnapshot(q, (snapshot) => {
+            const tourneys = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DivisionTournament));
+            onUpdate(tourneys);
+        }, (error) => {
+            console.error("Firestore Division Tournaments sub failed:", error);
+        });
+    }
+
+    public subscribeToSingleDivisionTournament(tourneyId: string, onUpdate: (tourney: DivisionTournament) => void) {
+        return onSnapshot(doc(db, 'division_tournaments', tourneyId), (snapshot) => {
+            if (snapshot.exists()) {
+                onUpdate({ id: snapshot.id, ...snapshot.data() } as DivisionTournament);
+            }
+        }, (error) => {
+            console.error("Firestore Single Division Tournament sub failed:", error);
+        });
+    }
 }
+

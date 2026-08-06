@@ -201,9 +201,9 @@ export const ProfileEditScreen: React.FC = () => {
                                         <h3 className="text-xl font-black uppercase tracking-widest italic text-white">{isPt ? 'SELECIONAR AVATAR' : 'SELECT AVATAR'}</h3>
                                     </div>
                                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
-                                        {AVATAR_LIST.map((avatar) => (
+                                        {AVATAR_LIST.map((avatar, idx) => (
                                             <AssetButton 
-                                                key={avatar.id}
+                                                key={`edit-avatar-${avatar.id}-${idx}`}
                                                 id={avatar.id}
                                                 url={avatar.url}
                                                 isSelected={avatarId === avatar.id}
@@ -222,9 +222,9 @@ export const ProfileEditScreen: React.FC = () => {
                                         <h3 className="text-xl font-black uppercase tracking-widest italic text-white">{isPt ? 'SELECIONAR FUNDO' : 'SELECT BACKGROUND'}</h3>
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                                        {BACKGROUND_LIST.map((bg) => (
+                                        {BACKGROUND_LIST.map((bg, idx) => (
                                             <AssetButton 
-                                                key={bg.id}
+                                                key={`edit-bg-${bg.id}-${idx}`}
                                                 id={bg.id}
                                                 url={bg.url}
                                                 isSelected={backgroundId === bg.id}

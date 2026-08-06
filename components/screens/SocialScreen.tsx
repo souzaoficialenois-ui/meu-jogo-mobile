@@ -17,6 +17,16 @@ import { db } from '../../services/firebase';
 import { useUI, UIProvider } from '../../contexts/UIContext';
 import { AVATAR_LIST } from '../../personagens/CharacterDatabase';
 
+const getAvatarUrl = (avatarId?: string) => {
+    if (!avatarId) return "/Assets/avatar/retrato/1.png";
+    if (avatarId.startsWith('/')) return avatarId;
+    const formatted = avatarId.startsWith('avatar_') ? avatarId : `avatar_${avatarId}`;
+    const found = AVATAR_LIST.find(a => a.id === avatarId || a.id === formatted);
+    if (found) return found.url;
+    const num = avatarId.replace('avatar_', '');
+    return `/Assets/avatar/retrato/${num}.png`;
+};
+
 type ChatCategory = 'WORLD' | 'FRIENDS';
 
 interface SocialScreenProps {
@@ -163,7 +173,7 @@ const SocialScreenContent: React.FC<SocialScreenProps> = ({ onClose }) => {
                             <motion.div 
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                key={`${msg.id}-${idx}`} 
+                                key={`social-msg-${msg.id || idx}-${idx}`} 
                                 className="flex group"
                                 style={{ gap: s(16) }}
                             >
@@ -176,7 +186,7 @@ const SocialScreenContent: React.FC<SocialScreenProps> = ({ onClose }) => {
                                     style={{ width: s(48), height: s(48) }}
                                 >
                                     <img 
-                                        src={AVATAR_LIST.find(a => a.id === msg.senderAvatar)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                                        src={getAvatarUrl(msg.senderAvatar)} 
                                         className="w-full h-full object-cover" 
                                         alt="avatar" 
                                     />
@@ -235,9 +245,9 @@ const SocialScreenContent: React.FC<SocialScreenProps> = ({ onClose }) => {
                         
                         {activeCat === 'FRIENDS' && (
                             <div className="grid grid-cols-2 lg:grid-cols-3" style={{ gap: s(16) }}>
-                                {friends.map((friend) => (
+                                {friends.map((friend, idx) => (
                                     <button 
-                                        key={`friend-card-${friend.friendId}`} 
+                                        key={`friend-card-${friend.friendId}-${idx}`} 
                                         onClick={() => {
                                             AudioManager.getInstance().playSFX('click');
                                             setShowProfileId(friend.friendId);
@@ -247,7 +257,7 @@ const SocialScreenContent: React.FC<SocialScreenProps> = ({ onClose }) => {
                                     >
                                         <div className="bg-orange-950/40 rounded-xl overflow-hidden shrink-0 border border-white/10" style={{ width: s(56), height: s(56) }}>
                                             <img 
-                                                src={AVATAR_LIST.find(a => a.id === friend.avatarId)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                                                src={getAvatarUrl(friend.avatarId)} 
                                                 className="w-full h-full object-cover" 
                                                 alt="friend" 
                                             />
@@ -288,7 +298,10 @@ const SocialScreenContent: React.FC<SocialScreenProps> = ({ onClose }) => {
                             <input 
                                 value={messageInput}
                                 onChange={(e) => setMessageInput(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                                onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') handleSendMessage();
+                                }}
                                 onBlur={() => {
                                     setTimeout(() => {
                                         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });

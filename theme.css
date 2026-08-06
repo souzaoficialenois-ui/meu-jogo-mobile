@@ -64,10 +64,6 @@
   word-break: break-word;
 }
 
-* {
-  border: none !important;
-}
-
 body, #root {
   /* Força o Android a usar a placa de vídeo para renderizar a página */
   transform: translateZ(0);
@@ -150,6 +146,44 @@ img {
 @keyframes float-particle {
   0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; }
   50% { transform: translateY(-20px) translateX(10px); opacity: 0.6; }
+}
+
+@keyframes aura-glow {
+  0%, 100% { opacity: 0.4; transform: scale(0.98); filter: blur(8px); }
+  50% { opacity: 0.8; transform: scale(1.05); filter: blur(14px); }
+}
+
+@keyframes shine-sweep {
+  0% { transform: translateX(-150%) skewX(-20deg); }
+  100% { transform: translateX(250%) skewX(-20deg); }
+}
+
+@keyframes badge-shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes ki-sparkle {
+  0%, 100% { transform: translateY(0) scale(0.8); opacity: 0.2; }
+  50% { transform: translateY(-12px) scale(1.2); opacity: 0.9; }
+}
+
+.animate-aura-glow {
+  animation: aura-glow 3s ease-in-out infinite;
+}
+
+.animate-shine-sweep {
+  animation: shine-sweep 3.5s ease-in-out infinite;
+}
+
+.animate-badge-shimmer {
+  background-size: 200% 200%;
+  animation: badge-shimmer 4s ease infinite;
+}
+
+.animate-ki-sparkle {
+  animation: ki-sparkle 2s ease-in-out infinite;
 }
 
 .animate-energy-line {

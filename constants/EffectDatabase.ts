@@ -25,6 +25,11 @@ export interface EffectFamily {
     id: string;
     name: string;
     imageUrl: string;
+    color?: string;
+    glowColor?: string;
+    glowBlur?: number;
+    glowRadius?: number;
+    glowIntensity?: number;
     frames?: number;
     frameWidth?: number;
     frameHeight?: number;

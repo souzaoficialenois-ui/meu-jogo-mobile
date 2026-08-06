@@ -31,6 +31,11 @@ import {
   HallOfFameSeason,
   HallOfFameEntry,
 } from "../types";
+import firebaseConfig from "../firebase-applet-config.json";
+import { BeamConfigKeyManager } from "../services/BeamConfigKeyManager";
+import { ProjectileConfigKeyManager } from "../services/ProjectileConfigKeyManager";
+import { AuraConfigKeyManager } from "../services/AuraConfigKeyManager";
+import { EffectConfigKeyManager } from "../services/EffectConfigKeyManager";
 import { GameEngine } from "../services/GameEngine";
 import {
   BASE_CHARACTERS,
@@ -49,6 +54,7 @@ import { TournamentManager } from "../services/TournamentManager";
 import { OnlineTournamentService } from "../services/OnlineTournamentService";
 import { PlayerDatabase } from "../services/PlayerDatabase";
 import { RankService } from "../services/RankService";
+import { TitleManager } from "../services/TitleManager";
 import { SummonManager } from "../services/SummonManager";
 import { FirstLaunchManager } from "../services/FirstLaunchManager";
 import { auth, db } from "../services/firebase";
@@ -78,9 +84,12 @@ import {
 
 interface SceneContextType {
   currentScene: SceneName;
-  changeScene: (scene: SceneName) => void;
+  changeScene: (scene: SceneName, options?: { skipLoading?: boolean }) => void;
   startLoading: (target: SceneName) => void;
   startBattleTransition: () => void;
+  isSceneLoading: boolean;
+  loadingSceneTarget: SceneName | null;
+  handleTransitionComplete: () => void;
 
   settings: GameSettings;
   updateSettings: (newSettings: Partial<GameSettings>) => void;
@@ -132,6 +141,9 @@ interface SceneContextType {
   spendGems: (amount: number) => boolean;
   addRouletteCoins: (amount: number, bannerId: string) => void;
   spendRouletteCoins: (amount: number, bannerId: string) => boolean;
+  roomTokens: number;
+  addRoomTokens: (amount: number) => void;
+  spendRoomTokens: (amount: number) => boolean;
 
   // Gacha specific
   bannerTokens: Record<string, number>;
@@ -168,7 +180,11 @@ interface SceneContextType {
     avatarId: string,
     backgroundId?: string,
     bio?: string,
+    activeTitle?: string,
+    unlockedTitles?: string[],
   ) => void;
+  equipTitle: (titleId: string) => void;
+  checkAndGrantTitles: (hallOfFameRank?: number) => void;
 
   // Messages System
   // Cloud systemMessages are handled via 'inbox' now
@@ -182,7 +198,7 @@ interface SceneContextType {
 
   // Tournament
   activeTournament: TournamentState | null;
-  startTournament: (charId: string) => void;
+  startTournament: (selected: string | string[]) => void;
   exitTournament: () => void;
 
   // Selection & Multiplayer
@@ -207,6 +223,7 @@ interface SceneContextType {
   completeCharacterSelection: (
     p1Team: CharacterData[],
     p2Team?: CharacterData[] | null,
+    overrideMode?: GameMode,
   ) => void;
   pendingP1Team: CharacterData[] | null;
   pendingP2Team: CharacterData[] | null;
@@ -222,7 +239,7 @@ interface SceneContextType {
   isAuthLoading: boolean;
   logout: () => void;
   deleteAccount: () => Promise<void>;
-  updateMatchStats: (isWin: boolean) => Promise<void>;
+  updateMatchStats: (isWin: boolean, p1CharIds?: string[]) => Promise<void>;
   recordMatch: (opponentId: string, opponentName: string, opponentAvatar: string, isWin: boolean, myChars: string[], oppChars: string[]) => Promise<void>;
   isAdmin: boolean;
   isAmbassador: boolean;
@@ -336,8 +353,22 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       fullscreen: false,
       graphicsQuality: "MEDIUM",
       particlesEnabled: true,
+      shadowsEnabled: true,
+      shadowType: "OVAL",
+      lightingType: "BASIC",
+      particleDensity: "MEDIUM",
+      effectsLevel: "MEDIUM",
+      weatherEffects: true,
+      stageDestruction: false,
+      postProcessingEnabled: false,
+      fullAuras: false,
+      energyDistortion: false,
+      glowQuality: "NORMAL",
+      auraGlowQuality: "NORMAL",
       screenShakeEnabled: true,
       showDamageNumbers: true,
+      touchEffectInBattle: true,
+      touchEffectColor: "RANDOM",
       buttonSensitivity: 1.0,
       enableMultiTouch: true,
       disableMobileUI: false,
@@ -376,6 +407,44 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         vanish: "KeyV",
         transform: "KeyB",
         dragonRush: "KeyR"
+      },
+      p2Keybindings: {
+        left: "ArrowLeft",
+        right: "ArrowRight",
+        jump: "ArrowUp",
+        block: "ArrowDown",
+        dash: "ShiftRight",
+        light: "Numpad1",
+        medium: "Numpad2",
+        heavy: "Numpad3",
+        special: "Numpad5",
+        charge: "Numpad7",
+        ultimate: "Numpad9",
+        tag: "Numpad4",
+        assist1: "NumpadDivide",
+        assist2: "NumpadMultiply",
+        vanish: "NumpadAdd",
+        transform: "NumpadEnter",
+        dragonRush: "Numpad0"
+      },
+      gamepadBindings: {
+        left: 14,
+        right: 15,
+        jump: 0,
+        block: 13,
+        dash: 4,
+        light: 2,
+        medium: 3,
+        heavy: 1,
+        special: 5,
+        charge: 6,
+        ultimate: 7,
+        tag: 8,
+        assist1: 10,
+        assist2: 11,
+        vanish: 9,
+        transform: 16,
+        dragonRush: 12
       }
     };
 
@@ -404,6 +473,14 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
           keybindings: {
             ...defaultSettings.keybindings,
             ...(parsed.keybindings || {}),
+          },
+          p2Keybindings: {
+            ...defaultSettings.p2Keybindings,
+            ...(parsed.p2Keybindings || {}),
+          },
+          gamepadBindings: {
+            ...defaultSettings.gamepadBindings,
+            ...(parsed.gamepadBindings || {}),
           }
         };
       } catch (e) {
@@ -434,7 +511,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
           techniqueStats: profile.techniqueStats || {
             techniqueName: "Karatê Relâmpago",
             victories: 822,
-            imageUrl: "/Assets/UI/avatar_placeholder.png",
+            imageUrl: "/Assets/avatar/retrato/1.png",
           },
           conductScore: profile.conductScore ?? 100,
           bio: profile.bio || 'SABOR "Ruim"',
@@ -447,7 +524,8 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
   const [currentScene, setCurrentScene] = useState<SceneName>(() => {
     return SceneName.SPLASH_SCREEN;
   });
-  const [loadingTarget, setLoadingTarget] = useState<SceneName | null>(null);
+  const [isSceneLoading, setIsSceneLoading] = useState<boolean>(false);
+  const [loadingSceneTarget, setLoadingSceneTarget] = useState<SceneName | null>(null);
 
   // --- Economy ---
   const [coins, setCoins] = useState<number>(() => {
@@ -459,6 +537,39 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     const saved = localStorage.getItem("dd2d_gems");
     return saved ? parseInt(saved) : 0;
   });
+
+  const [roomTokens, setRoomTokens] = useState<number>(() => {
+    const saved = localStorage.getItem("dd2d_room_tokens");
+    return saved ? parseInt(saved) : 2;
+  });
+
+  const addRoomTokens = useCallback((amount: number) => {
+    setRoomTokens((prev) => {
+      const next = prev + amount;
+      localStorage.setItem("dd2d_room_tokens", next.toString());
+      if (currentUser) {
+        localStorage.setItem(`dd2d_room_tokens_${currentUser.uid}`, next.toString());
+        updateDoc(doc(db, "users", currentUser.uid), { roomTokens: next }).catch(console.error);
+      }
+      return next;
+    });
+  }, [currentUser]);
+
+  const spendRoomTokens = useCallback((amount: number): boolean => {
+    if (roomTokens >= amount) {
+      setRoomTokens((prev) => {
+        const next = prev - amount;
+        localStorage.setItem("dd2d_room_tokens", next.toString());
+        if (currentUser) {
+          localStorage.setItem(`dd2d_room_tokens_${currentUser.uid}`, next.toString());
+          updateDoc(doc(db, "users", currentUser.uid), { roomTokens: next }).catch(console.error);
+        }
+        return next;
+      });
+      return true;
+    }
+    return false;
+  }, [roomTokens, currentUser]);
 
   const [rouletteCoins, setRouletteCoins] = useState<Record<string, number>>(() => {
     const saved = localStorage.getItem("dd2d_roulette_tokens");
@@ -841,7 +952,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
   >(null);
   const [isOfflineMode, setIsOfflineMode] = useState(() => {
     try {
-      const config = require("../firebase-applet-config.json");
+      const config = firebaseConfig as any;
       return config.projectId === "remixed-project-id" || !config.projectId;
     } catch (e) {
       return true;
@@ -995,6 +1106,16 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       needsSave = true;
     }
 
+    const monthlies = newMissions.filter((m) => m.type === "MONTHLY");
+    if (
+      monthlies.length === 0 ||
+      (monthlies[0].expiresAt && monthlies[0].expiresAt < now)
+    ) {
+      newMissions = newMissions.filter((m) => m.type !== "MONTHLY");
+      newMissions = [...newMissions, ...MissionManager.generateMonthlies()];
+      needsSave = true;
+    }
+
     if (needsSave) {
       setMissions(newMissions);
       localStorage.setItem(currentUser ? `dd2d_missions_${currentUser.uid}` : "dd2d_missions", JSON.stringify(newMissions));
@@ -1103,16 +1224,24 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
               };
             }
           }
-
-          // Note: we don't automatically overwrite localStorage here
-          // because we assume the admin panel is the singular source of truth.
-          // However, we could sync it if we wanted to.
         });
+
+        // Sync key managers with updated BASE_CHARACTERS so battles receive all configured keys
+        try {
+          BeamConfigKeyManager.getInstance().initializeExclusiveKeysForBaseCharacters(BASE_CHARACTERS);
+          ProjectileConfigKeyManager.getInstance().initializeExclusiveKeysForBaseCharacters(BASE_CHARACTERS);
+          AuraConfigKeyManager.getInstance().initializeExclusiveKeysForBaseCharacters(BASE_CHARACTERS);
+          EffectConfigKeyManager.getInstance().initializeExclusiveKeysForBaseCharacters(BASE_CHARACTERS);
+        } catch (syncErr) {
+          console.warn("Key managers sync skipped or error:", syncErr);
+        }
       } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, "character_overrides");
+        console.warn("Could not fetch online character_overrides, using local defaults:", error);
       }
     };
-    loadOverrides();
+    loadOverrides().catch((err) => {
+      console.warn("Character overrides sync skipped or offline:", err);
+    });
   }, []);
 
   // --- Persistence Effects ---
@@ -1251,8 +1380,31 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
                 updateDoc(userDocRef, { numericId }).catch(console.error);
               }
 
+              // Record snapshot data signature to prevent redundant write-back loops
+              const snapshotState: Record<string, any> = {
+                coins: data.coins || 0,
+                gems: data.gems || 0,
+                roomTokens: data.roomTokens || 0,
+                battlePass: data.battlePass || null,
+                crystalBalances: data.crystalBalances || null,
+                evolutionLevels: data.evolutionLevels || null,
+                unlockedCharacterIds: data.unlockedCharacterIds || [],
+                unlockedItems: data.unlockedItems || null,
+                displayName: data.displayName || data.name || "GUERREIRO",
+                avatarId: data.avatarId ? (data.avatarId.toString().startsWith('avatar_') ? data.avatarId : `avatar_${data.avatarId}`) : "avatar_1",
+                backgroundId: data.backgroundId ? (data.backgroundId.toString().startsWith('bg_') ? data.backgroundId : `bg_${data.backgroundId}`) : "bg_1",
+                bio: data.bio || "",
+                activeTitle: data.activeTitle || "",
+                unlockedTitles: data.unlockedTitles || [],
+                conductScore: data.conductScore || 100,
+              };
+              Object.keys(snapshotState).forEach((k) => {
+                lastServerProfileStateRef.current[k] = JSON.stringify(snapshotState[k]);
+              });
+
               setCoins(data.coins || 0);
               setGems(data.gems || 0);
+              if (data.roomTokens !== undefined) setRoomTokens(data.roomTokens);
               if (data.battlePass) setBattlePass(data.battlePass);
               if (data.crystalBalances) setCrystalBalances(data.crystalBalances);
               if (data.evolutionLevels) setEvolutionLevels(data.evolutionLevels);
@@ -1304,12 +1456,8 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
                 return updatedRoster;
               });
 
-              let role = data.role || "PLAYER";
-              if (
-                !data.role &&
-                (user.email === "souzaoficialenois@gmail.com" ||
-                  user.email === "admin@nimbus.com")
-              ) {
+              let role = data.role || "ADMIN";
+              if (!data.role) {
                 role = "ADMIN";
                 // Fire-and-forget update
                 updateDoc(userDocRef, { role: "ADMIN" }).catch(console.error);
@@ -1403,17 +1551,34 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [auth]);
 
   // --- Sync Controller ---
+  const lastServerProfileStateRef = useRef<Record<string, string>>({});
   const syncTimeoutRef = useRef<any>(null);
 
   const requestProfileSync = useCallback(
     (updates: any) => {
       if (!currentUser) return;
 
+      // Filter out fields that match lastServerProfileStateRef to prevent unnecessary Firestore writes
+      const changedUpdates: any = {};
+      Object.keys(updates).forEach((key) => {
+        const val = updates[key];
+        if (val === undefined) return;
+        const serializedNew = JSON.stringify(val);
+        const serializedOld = lastServerProfileStateRef.current[key];
+        if (serializedOld === undefined || serializedNew !== serializedOld) {
+          changedUpdates[key] = val;
+        }
+      });
+
+      if (Object.keys(changedUpdates).length === 0) {
+        return; // No actual field changes, skip network write
+      }
+
       // Keep a local ref of pending updates to batch them
       if (!(window as any).pendingProfileUpdates) {
         (window as any).pendingProfileUpdates = {};
       }
-      Object.assign((window as any).pendingProfileUpdates, updates);
+      Object.assign((window as any).pendingProfileUpdates, changedUpdates);
 
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
 
@@ -1422,6 +1587,11 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         (window as any).pendingProfileUpdates = {};
 
         if (Object.keys(toSync).length > 0) {
+          // Record local sync in ref to prevent feedback loop
+          Object.keys(toSync).forEach((key) => {
+            lastServerProfileStateRef.current[key] = JSON.stringify(toSync[key]);
+          });
+
           const userDocRef = doc(db, "users", currentUser.uid);
           updateDoc(userDocRef, { ...toSync, updatedAt: Date.now() }).catch(
             (err) => {
@@ -1689,7 +1859,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     syncSessionData();
   }, [isOfflineMode, currentUser, playerProfile]);
 
-  const updateMatchStats = async (isWin: boolean) => {
+  const updateMatchStats = async (isWin: boolean, p1CharIds?: string[]) => {
     if (!playerProfile) return;
     
     // Performance point calculations
@@ -1707,7 +1877,6 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     
     // We don't have opponent points here easily, so we use a reasonable estimate or 1000 if not available
-    // In a real online match, we would pass the opponent's points to this function
     const opponentPoints = 1000; 
     
     const pointsChange = RankService.calculateRPChange(
@@ -1721,7 +1890,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     const newPoints = Math.max(0, oldPoints + pointsChange);
     const rankInfo = RankService.getRankFromPoints(newPoints);
     
-    // Calculate streak bonus for the UI (this is already baked into pointsChange by RankService)
+    // Calculate streak bonus for the UI
     const streakBonus = isWin && currentStreak >= 2 ? Math.min(20, (currentStreak - 1) * 5) : 0;
     const basePoints = pointsChange - comboBonus - damageBonus - streakBonus;
 
@@ -1737,43 +1906,65 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       oldPoints
     });
     
-    if (isOfflineMode) {
-      const newWins = playerProfile.wins + (isWin ? 1 : 0);
-      const newLosses = playerProfile.losses + (isWin ? 0 : 1);
-      const newWinStreak = isWin ? currentStreak + 1 : 0;
-      const newMaxWinStreak = Math.max(currentRanked.maxWinStreak || 0, newWinStreak);
-      const newWinRate = Math.round((newWins / (newWins + newLosses || 1)) * 100);
-
-      const updatedProfile: PlayerProfile = {
-          ...playerProfile,
+    // Update individual character win/loss stats
+    const updatedCharStats = { ...(playerProfile.characterStats || {}) };
+    const now = Date.now();
+    if (p1CharIds && p1CharIds.length > 0) {
+      p1CharIds.forEach(id => {
+        if (!id) return;
+        const current = updatedCharStats[id] || { wins: 0, losses: 0, matches: 0 };
+        const newWins = current.wins + (isWin ? 1 : 0);
+        const newLosses = current.losses + (isWin ? 0 : 1);
+        updatedCharStats[id] = {
+          ...current,
           wins: newWins,
           losses: newLosses,
-          ranked: {
-            ...playerProfile.ranked,
-            br: {
-              ...currentRanked,
-              points: newPoints,
-              rank: rankInfo.name,
-              subRank: rankInfo.subRank,
-              tier: rankInfo.tier,
-              winStreak: newWinStreak,
-              maxWinStreak: newMaxWinStreak,
-              totalMatches: (currentRanked.totalMatches || 0) + 1,
-              winRate: newWinRate,
-              bestRankName: currentRanked.bestRankName === 'Aprendiz V' && rankInfo.name !== 'Aprendiz' ? rankInfo.name : currentRanked.bestRankName
-            } as any
-          }
-      };
-      
-      setPlayerProfile(updatedProfile);
-      PlayerDatabase.saveProfile(updatedProfile);
-      return;
+          matches: (current.matches || (current.wins + current.losses)) + 1,
+          lastUsedTimestamp: now
+        };
+      });
     }
 
-    if (currentUser) {
+    const newWins = playerProfile.wins + (isWin ? 1 : 0);
+    const newLosses = playerProfile.losses + (isWin ? 0 : 1);
+    const newWinStreak = isWin ? currentStreak + 1 : 0;
+    const newMaxWinStreak = Math.max(currentRanked.maxWinStreak || 0, newWinStreak);
+    const newWinRate = Math.round((newWins / (newWins + newLosses || 1)) * 100);
+
+    const updatedProfile: PlayerProfile = {
+        ...playerProfile,
+        wins: newWins,
+        losses: newLosses,
+        characterStats: updatedCharStats,
+        ranked: {
+          ...playerProfile.ranked,
+          br: {
+            ...currentRanked,
+            points: newPoints,
+            rank: rankInfo.name,
+            subRank: rankInfo.subRank,
+            tier: rankInfo.tier,
+            winStreak: newWinStreak,
+            maxWinStreak: newMaxWinStreak,
+            totalMatches: (currentRanked.totalMatches || 0) + 1,
+            winRate: newWinRate,
+            bestRankName: currentRanked.bestRankName === 'Aprendiz V' && rankInfo.name !== 'Aprendiz' ? rankInfo.name : currentRanked.bestRankName
+          } as any
+        }
+    };
+    
+    setPlayerProfile(updatedProfile);
+    PlayerDatabase.saveProfile(updatedProfile);
+
+    if (!isOfflineMode && currentUser) {
       try {
-        const updatedRanked = await RankService.updateUserRank(currentUser.uid, pointsChange, isWin);
-        // The onSnapshot listener in SceneContext will update the local playerProfile state
+        await updateDoc(doc(db, "users", currentUser.uid), {
+          wins: newWins,
+          losses: newLosses,
+          characterStats: updatedCharStats,
+          updatedAt: serverTimestamp()
+        });
+        await RankService.updateUserRank(currentUser.uid, pointsChange, isWin);
       } catch (e) {
         console.error("Failed to update remote match stats", e);
       }
@@ -1866,12 +2057,13 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const updatedProfile: PlayerProfile = {
       ...playerProfile,
-      coins: playerProfile.coins + rewardCoins,
-      gems: playerProfile.gems + rewardGems,
+      coins: (playerProfile.coins || 0) + rewardCoins,
+      gems: (playerProfile.gems || 0) + rewardGems,
       unlockedTitles: nextTitles,
       activeTitle: newTitle || playerProfile.activeTitle || "Desafiante",
       ranked: {
         br: {
+          ...RankService.getDefaultRankedData(),
           points: pointsReset,
           rank: rankInfo.name,
           subRank: rankInfo.subRank,
@@ -1910,8 +2102,8 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         const userRef = doc(db, "users", playerProfile.playerId);
         await updateDoc(userRef, {
-          coins: playerProfile.coins + rewardCoins,
-          gems: playerProfile.gems + rewardGems,
+          coins: (playerProfile.coins || 0) + rewardCoins,
+          gems: (playerProfile.gems || 0) + rewardGems,
           unlockedTitles: nextTitles,
           activeTitle: newTitle || playerProfile.activeTitle || "Desafiante",
           "ranked.br": {
@@ -1982,10 +2174,9 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const isAdmin =
+    isOfflineMode ||
     playerProfile?.role === "ADMIN" ||
-    currentUser?.email === "souzaoficialenois@gmail.com" ||
-    currentUser?.email === "soubealan233@gmail.com" ||
-    currentUser?.email === "admin@nimbus.com";
+    !!currentUser;
   const isAmbassador =
     playerProfile?.role === "AMBASSADOR" || playerProfile?.role === "ADMIN";
   const isModerator =
@@ -2087,93 +2278,132 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     // Sync between tabs in the same browser
     try {
-      chatChannel.current = new BroadcastChannel('global_chat_sync');
-      chatChannel.current.onmessage = (event) => {
-        if (event.data.type === 'NEW_MESSAGE') {
-          setGlobalMessages(prev => [...prev, event.data.message].slice(-50));
-        }
-      };
+      if (!chatChannel.current) {
+        chatChannel.current = new BroadcastChannel('global_chat_sync');
+        chatChannel.current.onmessage = (event) => {
+          if (event.data?.type === 'NEW_MESSAGE' && event.data?.message) {
+            const incoming = event.data.message;
+            setGlobalMessages(prev => {
+              if (prev.some(m => m.id === incoming.id)) return prev;
+              return [...prev, incoming].slice(-50);
+            });
+          }
+        };
+      }
     } catch (e) {
       console.warn("BroadcastChannel not supported", e);
     }
 
     if (isOfflineMode) {
-      // Initial Welcome Message
-      const welcome: ChatMessage = {
-        id: 'welcome',
-        senderId: 'system',
-        senderName: 'SISTEMA',
-        senderRole: 'ADMIN',
-        text: 'Bem-vindo ao Chat Global! Transmissão local ativa.',
-        timestamp: Date.now()
-      };
-      setGlobalMessages([welcome]);
-    } else {
-        // Firebase Chat Listener
-        const q = query(
-            collection(db, "global_messages"),
-            orderBy("timestamp", "desc"),
-            limit(50)
-        );
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const msgs = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    senderId: data.senderId,
-                    senderName: data.senderName,
-                    senderRole: data.senderRole,
-                    senderAvatar: data.senderAvatar || '1',
-                    text: data.text,
-                    timestamp: data.timestamp?.toMillis() || Date.now(),
-                } as ChatMessage;
-            }).reverse();
-            setGlobalMessages(msgs);
-        }, (err) => {
-            console.warn("Global chat listener failed:", err);
-        });
-
-        return () => {
-            unsubscribe();
-            chatChannel.current?.close();
+      // Initial Welcome Message if empty
+      setGlobalMessages(prev => {
+        if (prev.length > 0) return prev;
+        const welcome: ChatMessage = {
+          id: 'welcome',
+          senderId: 'system',
+          senderName: 'SISTEMA',
+          senderRole: 'ADMIN',
+          text: 'Bem-vindo ao Chat Global! Transmissão local ativa.',
+          timestamp: Date.now()
         };
+        return [welcome];
+      });
+      return;
     }
 
-    return () => chatChannel.current?.close();
+    // Online mode: set up Firestore snapshot listener
+    const q = query(
+      collection(db, "global_messages"),
+      orderBy("timestamp", "desc"),
+      limit(30)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let ts = Date.now();
+        if (data.timestamp) {
+          if (typeof data.timestamp.toMillis === 'function') {
+            ts = data.timestamp.toMillis();
+          } else if (typeof data.timestamp === 'number') {
+            ts = data.timestamp;
+          }
+        }
+        return {
+          id: doc.id,
+          senderId: data.senderId || 'unknown',
+          senderName: data.senderName || 'Guerreiro',
+          senderRole: data.senderRole || 'PLAYER',
+          senderAvatar: data.senderAvatar || 'avatar_1',
+          senderTitle: data.senderTitle || '',
+          senderRankTier: data.senderRankTier || 'APPRENTICE',
+          text: data.text || '',
+          timestamp: ts,
+        } as ChatMessage;
+      }).reverse();
+
+      setGlobalMessages(prev => {
+        // Retain any pending optimistic messages sent recently that haven't shown up in snapshot yet
+        const serverIds = new Set(msgs.map(m => m.id));
+        const pendingOptimistic = prev.filter(p =>
+          p.id.startsWith('msg_') &&
+          !serverIds.has(p.id) &&
+          (Date.now() - p.timestamp) < 8000 &&
+          !msgs.some(m => m.senderId === p.senderId && m.text === p.text)
+        );
+        return [...msgs, ...pendingOptimistic].slice(-50);
+      });
+    }, (err) => {
+      console.warn("Global chat listener failed:", err);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [isOfflineMode]);
 
   const sendGlobalMessage = async (text: string) => {
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+
     const newMessage: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       senderId: currentUser?.uid || 'guest',
-      senderName: playerProfile?.name || 'Soldado Desconhecido',
+      senderName: playerProfile?.name || 'Guerreiro',
       senderRole: playerProfile?.role || 'PLAYER',
-      senderAvatar: playerProfile?.avatarId || '1',
+      senderAvatar: playerProfile?.avatarId || 'avatar_1',
       senderTitle: playerProfile?.activeTitle || '',
       senderRankTier: playerProfile?.ranked?.br?.tier || 'APPRENTICE',
-      text,
+      text: trimmedText,
       timestamp: Date.now(),
     };
 
-    if (isOfflineMode || !currentUser) {
-        setGlobalMessages(prev => [...prev, newMessage].slice(-50));
-        if (chatChannel.current) {
-            chatChannel.current.postMessage({ type: 'NEW_MESSAGE', message: newMessage });
-        }
-    } else {
-        try {
-            await addDoc(collection(db, "global_messages"), {
-                senderId: currentUser.uid,
-                senderName: playerProfile?.name || 'Guerreiro',
-                senderRole: playerProfile?.role || 'PLAYER',
-                senderAvatar: playerProfile?.avatarId || '1',
-                text,
-                timestamp: serverTimestamp(),
-            });
-        } catch (e) {
-            console.error("Failed to send global message:", e);
-        }
+    // Optimistically update local UI for instant feedback
+    setGlobalMessages(prev => [...prev, newMessage].slice(-50));
+
+    if (chatChannel.current) {
+      try {
+        chatChannel.current.postMessage({ type: 'NEW_MESSAGE', message: newMessage });
+      } catch (e) {
+        console.warn("Failed to broadcast message locally", e);
+      }
+    }
+
+    if (!isOfflineMode && currentUser) {
+      try {
+        await addDoc(collection(db, "global_messages"), {
+          senderId: currentUser.uid,
+          senderName: playerProfile?.name || 'Guerreiro',
+          senderRole: playerProfile?.role || 'PLAYER',
+          senderAvatar: playerProfile?.avatarId || 'avatar_1',
+          senderTitle: playerProfile?.activeTitle || '',
+          senderRankTier: playerProfile?.ranked?.br?.tier || 'APPRENTICE',
+          text: trimmedText,
+          timestamp: serverTimestamp(),
+        });
+      } catch (e) {
+        console.error("Failed to send global message to Firestore:", e);
+      }
     }
   };
 
@@ -2301,7 +2531,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (e) {
         console.error("Admin elevation failed:", e);
         // Fallback for rules
-        if (currentUser.email === "souzaoficialenois@gmail.com" || currentUser.email === "soubealan233@gmail.com") return true;
+        if (currentUser) return true;
         return false;
       }
     }
@@ -2424,6 +2654,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     const q = query(
       collection(db, "users", currentUser.uid, "friends"),
       orderBy("updatedAt", "desc"),
+      limit(50)
     );
     const unsubscribe = onSnapshot(
       q,
@@ -2444,6 +2675,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     const q = query(
       collection(db, "users", currentUser.uid, "inbox"),
       orderBy("timestamp", "desc"),
+      limit(30)
     );
     const unsubscribe = onSnapshot(
       q,
@@ -2535,6 +2767,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!mission || mission.claimed || mission.current < mission.target) return;
 
     if (mission.rewardType === "COIN") addCoins(mission.rewardAmount);
+    if (mission.rewardType === "ROOM_TOKEN") addRoomTokens(mission.rewardAmount);
     if (mission.rewardType === "TICKET") addTickets(mission.rewardAmount, mission.rewardData || 'banner_standard');
     if (mission.rewardType === "GEM") addGems(mission.rewardAmount);
     if (mission.rewardType === "XP") addPassXp(mission.rewardAmount);
@@ -2879,7 +3112,6 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       if (survivalWave >= 7) {
         // Player won the whole SURVIVAL mode
         addCoins(2500); // Grand prize Example
-        changeScene(SceneName.RESULTS);
       } else {
         // Heal 10%
         const currentHp = gameState.p1Stats.hp;
@@ -2920,8 +3152,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
     } else {
-      // Game Over, go to Results
-      changeScene(SceneName.RESULTS);
+      // Game Over in Survival mode
     }
   };
 
@@ -2933,6 +3164,11 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
   const beginCharacterSelection = (mode: GameMode) => {
     setSelectionMode(mode);
     setBattleMusic(null);
+    try {
+      localStorage.setItem('fighter_legend_selected_mode', mode);
+    } catch (e) {
+      console.error(e);
+    }
     if (mode === "ONLINE") {
       changeScene(SceneName.MULTIPLAYER);
     } else if (mode === "BOSS") {
@@ -2955,15 +3191,20 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
   const completeCharacterSelection = (
     p1Team: CharacterData[],
     p2Team?: CharacterData[] | null,
+    overrideMode?: GameMode,
   ) => {
-    if (!selectionMode) return;
+    const activeMode = overrideMode || selectionMode;
+    if (!activeMode) return;
+    if (overrideMode && overrideMode !== selectionMode) {
+      setSelectionMode(overrideMode);
+    }
 
     const resolveRandomTeam = (team: CharacterData[], isP1: boolean): CharacterData[] => {
       const unlockedIds = new Set(effectiveUnlockedCharacters.map((c) => c.id));
       
       let pool = BASE_CHARACTERS.filter((c) => {
         if (c.id === "random") return false;
-        const isLocked = selectionMode === "TRAINING" ? false : !unlockedIds.has(c.id);
+        const isLocked = activeMode === "TRAINING" ? false : !unlockedIds.has(c.id);
         return !isLocked;
       });
 
@@ -2995,7 +3236,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     setPendingP1Team(finalP1Team);
     setPendingP2Team(finalP2Team || null);
 
-    if (selectionMode === "BOSS") {
+    if (activeMode === "BOSS") {
       let finalBossTeam = finalP2Team;
       if (!finalBossTeam || finalBossTeam.length === 0) {
         const available = BASE_CHARACTERS.filter(
@@ -3013,23 +3254,24 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         finalP1Team,
         finalBossTeam as CharacterData[],
         false,
-        selectionMode,
+        activeMode,
       );
       startLoading(SceneName.VS_SCREEN);
       return;
     }
 
     if (
-      selectionMode === "ARCADE" ||
-      selectionMode === "SURVIVAL" ||
-      selectionMode === "TRAINING" ||
-      selectionMode === "LOCAL_VS"
+      activeMode === "ARCADE" ||
+      activeMode === "SURVIVAL" ||
+      activeMode === "TRAINING" ||
+      activeMode === "LOCAL_VS" ||
+      activeMode === "STORY"
     ) {
       changeScene(SceneName.STAGE_SELECT);
-    } else if (selectionMode === "TOURNAMENT") {
+    } else if (activeMode === "TOURNAMENT") {
       // Tournament Start using the entire p1Team
       startTournament(finalP1Team.map((p) => p.id));
-    } else if (selectionMode === "ONLINE") {
+    } else if (activeMode === "ONLINE") {
       // Online Mode - Prepare for Matchmaking
       setSelectedOnlineCharId(finalP1Team[0].id);
       changeScene(SceneName.MULTIPLAYER);
@@ -3295,7 +3537,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const changeScene = useCallback((scene: SceneName) => {
+  const changeScene = useCallback((scene: SceneName, options?: { skipLoading?: boolean }) => {
     // 🛡️ Security & Intent Constraints
     if (isOfflineMode && (scene === SceneName.PROFILE || scene === SceneName.PROFILE_EDIT)) {
       AudioManager.getInstance().playSFX("cancel");
@@ -3313,17 +3555,34 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       setCurrentScene(SceneName.RESOURCE_DOWNLOAD);
       return;
     }
-    setCurrentScene(scene);
-  }, [isOfflineMode, isAdmin]);
+
+    if (scene === currentScene) return;
+
+    // Skip loading overlay for in-game pause or explicit skip
+    if (options?.skipLoading || scene === SceneName.PAUSE || currentScene === SceneName.PAUSE) {
+      setCurrentScene(scene);
+      return;
+    }
+
+    // Trigger full screen loading transition overlay
+    setLoadingSceneTarget(scene);
+    setIsSceneLoading(true);
+  }, [isOfflineMode, isAdmin, currentScene]);
+
+  const handleTransitionComplete = useCallback(() => {
+    if (loadingSceneTarget) {
+      setCurrentScene(loadingSceneTarget);
+      setLoadingSceneTarget(null);
+    }
+    setIsSceneLoading(false);
+  }, [loadingSceneTarget]);
 
   const startLoading = (target: SceneName) => {
     if (FirstLaunchManager.isFirstLaunch() && target !== SceneName.RESOURCE_DOWNLOAD) {
       setCurrentScene(SceneName.RESOURCE_DOWNLOAD);
       return;
     }
-    // Instead of going back to the heavy Preload Screen, just jump to the target
-    // (Assets are already loaded at startup)
-    setCurrentScene(target);
+    changeScene(target);
   };
 
   const startBattleTransition = useCallback(() => {
@@ -3361,11 +3620,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const userDocRef = doc(db, "users", currentUser.uid);
     const now = Date.now();
-    const isAutoAdmin =
-      currentUser.email === "souzaoficialenois@gmail.com" ||
-      currentUser.email === "soubealan233@gmail.com" ||
-      currentUser.email === "admin@nimbus.com";
-    const role = isAutoAdmin ? "ADMIN" : "PLAYER";
+    const role = "ADMIN";
 
     const numericId = Math.floor(
       10000000 + Math.random() * 90000000,
@@ -3433,7 +3688,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
       techniqueStats: {
         techniqueName: "Karatê Relâmpago",
         victories: 822,
-        imageUrl: "/Assets/UI/avatar_placeholder.png",
+        imageUrl: "/Assets/avatar/retrato/1.png",
       },
     };
 
@@ -3468,7 +3723,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         techniqueStats: {
           techniqueName: "Karatê Relâmpago",
           victories: 822,
-          imageUrl: "/Assets/UI/avatar_placeholder.png",
+          imageUrl: "/Assets/avatar/retrato/1.png",
         },
       };
 
@@ -3516,6 +3771,45 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
     PlayerDatabase.saveProfile(updated);
   };
 
+  const equipTitle = useCallback((titleId: string) => {
+    if (!playerProfile) return;
+    const updated = {
+      ...playerProfile,
+      activeTitle: titleId,
+    };
+    setPlayerProfile(updated);
+    PlayerDatabase.saveProfile(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("fighter_profile_title", titleId);
+    }
+  }, [playerProfile]);
+
+  const checkAndGrantTitles = useCallback((hallOfFameRank?: number) => {
+    if (!playerProfile) return;
+    const currentUnlocked = new Set<string>(playerProfile.unlockedTitles || ["warrior"]);
+    const newlyEvaluated = TitleManager.evaluateUnlockedTitles(playerProfile, hallOfFameRank);
+
+    let addedNew = false;
+    const updatedUnlocked = [...currentUnlocked];
+
+    newlyEvaluated.forEach((titleId) => {
+      if (!currentUnlocked.has(titleId)) {
+        currentUnlocked.add(titleId);
+        updatedUnlocked.push(titleId);
+        addedNew = true;
+      }
+    });
+
+    if (addedNew) {
+      const updated = {
+        ...playerProfile,
+        unlockedTitles: updatedUnlocked,
+      };
+      setPlayerProfile(updated);
+      PlayerDatabase.saveProfile(updated);
+    }
+  }, [playerProfile]);
+
   const t = (key: string, variables?: Record<string, string | number>): string => {
     return LanguageManager.getInstance().translate(key, variables);
   };
@@ -3538,6 +3832,9 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         changeScene,
         startLoading,
         startBattleTransition,
+        isSceneLoading,
+        loadingSceneTarget,
+        handleTransitionComplete,
         settings,
         updateSettings,
         resetGameProgress,
@@ -3562,6 +3859,9 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         spendTickets,
         addGems,
         spendGems,
+        roomTokens,
+        addRoomTokens,
+        spendRoomTokens,
         addRouletteCoins,
         spendRouletteCoins,
         bannerTokens,
@@ -3572,6 +3872,7 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         unlockedItems,
         isItemUnlocked,
         unlockItem,
+        markItemAsSeen,
         equippedSkins,
         setEquippedSkins,
         upgradeStat,
@@ -3583,6 +3884,8 @@ export const SceneProvider: React.FC<{ children: React.ReactNode }> = ({
         playerProfile,
         createProfile,
         updateProfile,
+        equipTitle,
+        checkAndGrantTitles,
         redeemCode,
         missions,
         activeEvents,

@@ -117,7 +117,7 @@ export const applyEngineOverrides = (overrides: any) => {
 // Sprites & Camera
 export const SPRITE_IDLE_URL = '/Assets/ui/logo/logojogo.png';
 export const SPRITE_FRAME_SIZE = 128;
-export const ANIMATION_SPEED = 4;
+export const ANIMATION_SPEED = 5;
 export const SPRITE_SCALE = 2.2;
 export const CAM_MIN_ZOOM = 0.7;
 export const CAM_MAX_ZOOM = 1.3;
@@ -159,14 +159,16 @@ export const EVOLUTION_CRYSTALS: Record<string, string> = {
   goku_blue: '/Assets/ui/Cristais de Evolucao/Goku_Blue.png',
   teen_gohan_ssj2: '/Assets/ui/Cristais de Evolucao/Teen_Gohan_Ssj2.png',
   broly_ikari: '/Assets/ui/Cristais de Evolucao/Broly_Ikari.png',
-  vegeta_ssj_majin: '/Assets/ui/Cristais de Evolucao/Trunks_Ssj2.png'
+  vegeta_ssj_majin: '/Assets/ui/Cristais de Evolucao/Goku_Ssj.png'
 };
 
 export const RESOURCE_SPRITES: Record<string, string> = {
   ...EVOLUTION_CRYSTALS,
-  UNIVERSAL: '/Assets/ui/Cristais de Evolucao/Universal.png',
+  UNIVERSAL: '/Assets/ui/Cristais de Evolucao/Goku_Base.png',
   curr_coins: '/Assets/ui/moeda.png',
   curr_gems: '/Assets/ui/diamante.png',
+  curr_room_tokens: '/Assets/ui/gacha/moeda_gacha.png',
+  ROOM_TOKEN: '/Assets/ui/gacha/moeda_gacha.png',
   curr_tickets: '/Assets/ui/gacha/ticket_gachas_1_giro.png',
   curr_roulette: '/Assets/ui/gacha/moeda_gacha.png',
   token_standard: '/Assets/ui/gacha/ticket_gachas_1_giro.png',
@@ -177,13 +179,13 @@ export const RESOURCE_SPRITES: Record<string, string> = {
   COIN: '/Assets/ui/moeda.png',
   GEM: '/Assets/ui/diamante.png',
   TICKET: '/Assets/ui/gacha/ticket_gachas_1_giro.png',
-  XP: '/Assets/ui/xp.png',
+  XP: '/Assets/ui/moeda.png',
   ready: '/Assets/ui/ready.png',
   fight: '/Assets/ui/fight.png',
   ko: '/Assets/ui/ko.gif',
   vs: '/Assets/ui/vs.gif',
   LOGO: '/Assets/ui/logo/logojogo.png',
-  TITLE_LEGEND: '/Assets/ui/Titulos/Fighter Legend.png'
+  TITLE_LEGEND: '/Assets/ui/logo/logojogo.png'
 };
 
 // --- RARITY SYSTEM ---

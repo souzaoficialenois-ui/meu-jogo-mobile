@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSceneManager } from '../../contexts/SceneContext';
-import { SceneName } from '../../types';
+import { SceneName, CpuAction, CounterAttackType } from '../../types';
 import { AudioManager } from '../../services/AudioManager';
+import { CpuStreakManager } from '../../services/CpuStreakManager';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, Settings, LogOut, BookOpen, Target, 
   ChevronRight, Zap, Swords, Shield, Activity, Sparkles, Wind, Crosshair, Flame, Sword,
   Gamepad2, MoveLeft, MoveRight, MoveUp, MoveDown, Layers, Users, UserPlus, Repeat,
-  XCircle, CheckCircle2, SlidersHorizontal, Info, Orbit
+  XCircle, CheckCircle2, SlidersHorizontal, Info, Orbit, RotateCcw, Bot
 } from 'lucide-react';
 
 const HUD_ICONS: Record<string, React.ReactNode> = {
@@ -53,7 +54,7 @@ export const PauseScreen: React.FC = () => {
   const isPt = settings?.language === 'pt';
   
   const [activePanel, setActivePanel] = useState<'main' | 'commands' | 'training'>('main');
-  const [activeTrainingTab, setActiveTrainingTab] = useState<'dummy' | 'system'>('dummy');
+  const [activeTrainingTab, setActiveTrainingTab] = useState<'dummy' | 'cpu' | 'system'>('dummy');
   const [, setForceUpdate] = useState(0);
   const [selectedMoveIndex, setSelectedMoveIndex] = useState<number>(0);
 
@@ -333,13 +334,55 @@ export const PauseScreen: React.FC = () => {
     delay: Math.random() * 5
   }));
 
+  const setCpuAction = (mode: CpuAction) => {
+    AudioManager.getInstance().playSFX('click');
+    if (gameEngine) {
+      gameEngine.setCpuAction(mode);
+      setForceUpdate(prev => prev + 1);
+    }
+  };
+
+  const setCounterAttackType = (type: CounterAttackType) => {
+    AudioManager.getInstance().playSFX('click');
+    if (gameEngine) {
+      gameEngine.setCounterAttackType(type);
+      setForceUpdate(prev => prev + 1);
+    }
+  };
+
+  const handleResetPositions = () => {
+    AudioManager.getInstance().playSFX('click');
+    if (gameEngine) {
+      gameEngine.reset();
+    }
+    setPaused(false);
+  };
+
+  const currentCpuAction = gameEngine?.cpuAction || CpuAction.OFF;
+  const currentCounterAttackType = gameEngine?.counterAttackType || CounterAttackType.LIGHT;
+
   const mainMenuItems = [
-    { id: 'resume', label: t('pause_resume', 'Resume Game'), icon: Play, onClick: handleResume, color: 'from-orange-500 to-orange-400' },
+    { id: 'resume', label: t('pause_resume') || 'Resume Game', icon: Play, onClick: handleResume, color: 'from-orange-500 to-orange-400' },
     { id: 'restart', label: isPt ? 'Reiniciar Partida' : 'Restart Match', icon: Repeat, onClick: handleRestart, color: 'from-orange-500 to-orange-400' },
-    { id: 'commands', label: t('pause_commands', 'Command List'), icon: BookOpen, onClick: () => togglePanel('commands'), color: 'from-orange-500 to-orange-400' },
-    ...(isTraining ? [{ id: 'training', label: isPt ? 'Opções de Treino' : 'Training Options', icon: Target, onClick: () => togglePanel('training'), color: 'from-orange-500 to-orange-500' }] : []),
-    { id: 'settings', label: t('pause_settings', 'Settings'), icon: Settings, onClick: () => { AudioManager.getInstance().playSFX('click'); changeScene(SceneName.SETTINGS); }, color: 'from-slate-500 to-slate-400' },
-    { id: 'quit', label: t('pause_quit', 'Quit to Menu'), icon: LogOut, onClick: handleQuit, color: 'from-red-600 to-orange-500', isDanger: true },
+    ...(isTraining ? [
+      { 
+        id: 'reset_pos', 
+        label: isPt ? 'Resetar Posições' : 'Reset Positions', 
+        icon: RotateCcw, 
+        onClick: handleResetPositions, 
+        color: 'from-amber-600 to-yellow-500' 
+      },
+      { 
+        id: 'training', 
+        label: isPt ? 'Opções de Treino' : 'Training Options', 
+        icon: Target, 
+        onClick: () => togglePanel('training'), 
+        color: 'from-orange-500 to-orange-500' 
+      },
+    ] : []),
+    { id: 'commands', label: t('pause_commands') || 'Command List', icon: BookOpen, onClick: () => togglePanel('commands'), color: 'from-orange-500 to-orange-400' },
+    { id: 'settings', label: t('pause_settings') || 'Settings', icon: Settings, onClick: () => { AudioManager.getInstance().playSFX('click'); changeScene(SceneName.SETTINGS); }, color: 'from-slate-500 to-slate-400' },
+    { id: 'quit', label: t('pause_quit') || 'Quit to Menu', icon: LogOut, onClick: handleQuit, color: 'from-red-600 to-orange-500', isDanger: true },
   ];
 
   return (
@@ -640,17 +683,24 @@ export const PauseScreen: React.FC = () => {
                 <div className="flex border-b border-white/10 bg-black/20">
                   <button
                     onClick={() => setActiveTrainingTab('dummy')}
-                    className={`flex-1 py-4 text-sm font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2
+                    className={`flex-1 py-4 text-xs md:text-sm font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2
                       ${activeTrainingTab === 'dummy' ? 'text-orange-400 border-b-2 border-orange-400 bg-orange-500/10' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                   >
                     <Orbit className="w-4 h-4" /> {isPt ? "Estado do Alvo" : "Dummy State"}
                   </button>
                   <button
+                    onClick={() => setActiveTrainingTab('cpu')}
+                    className={`flex-1 py-4 text-xs md:text-sm font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2
+                      ${activeTrainingTab === 'cpu' ? 'text-orange-400 border-b-2 border-orange-400 bg-orange-500/10' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                  >
+                    <Bot className="w-4 h-4" /> {isPt ? "Ações da CPU" : "CPU Actions"}
+                  </button>
+                  <button
                     onClick={() => setActiveTrainingTab('system')}
-                    className={`flex-1 py-4 text-sm font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2
+                    className={`flex-1 py-4 text-xs md:text-sm font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2
                       ${activeTrainingTab === 'system' ? 'text-orange-400 border-b-2 border-orange-400 bg-orange-500/10' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                   >
-                    <SlidersHorizontal className="w-4 h-4" /> {isPt ? "Opções do Sistema" : "System Toggles"}
+                    <SlidersHorizontal className="w-4 h-4" /> {isPt ? "Sistema" : "System"}
                   </button>
                 </div>
 
@@ -689,10 +739,97 @@ export const PauseScreen: React.FC = () => {
                              ))}
                            </div>
                            <p className="text-slate-500 text-xs flex items-center gap-2 mt-4">
-                             <Info className="w-4 h-4" /> {isPt ? "Selecione como o oponente de IA reage durante a simulação de treino." : "Select how the AI opponent reacts during the simulation."}
+                             <Info className="w-4 h-4" /> {isPt ? "Selecione como o oponente reage durante a simulação de treino." : "Select how the dummy reacts during simulation."}
                            </p>
                         </div>
 
+                      </motion.div>
+                    )}
+
+                    {activeTrainingTab === 'cpu' && (
+                      <motion.div key="cpu" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                        <div className="p-5 rounded-xl border border-white/10 bg-white/5 space-y-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Bot className="w-5 h-5 text-orange-400" />
+                            <h3 className="text-lg font-bold text-white uppercase tracking-widest">
+                              {isPt ? "Modo da CPU / IA" : "CPU / AI Behavior"}
+                            </h3>
+                          </div>
+
+                          {/* Adaptive AI Streak Banner */}
+                          <div className="p-3 rounded-lg bg-orange-950/40 border border-orange-500/30 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <Flame className="w-4 h-4 text-orange-400 animate-pulse" />
+                              <div>
+                                <div className="text-xs font-bold text-orange-300 uppercase tracking-wider">
+                                  {isPt ? "I.A. Adaptativa Ativa" : "Adaptive AI Active"}
+                                </div>
+                                <div className="text-[10px] text-slate-300">
+                                  {isPt 
+                                    ? `Sequência: ${CpuStreakManager.getStreak()} vitórias (+${Math.round((CpuStreakManager.getAggressivenessMultiplier() - 1) * 100)}% agressividade)` 
+                                    : `Streak: ${CpuStreakManager.getStreak()} wins (+${Math.round((CpuStreakManager.getAggressivenessMultiplier() - 1) * 100)}% aggression)`}
+                                </div>
+                              </div>
+                            </div>
+                            <span className="text-xs font-extrabold text-orange-400 bg-orange-500/20 px-2 py-1 rounded border border-orange-500/40">
+                              {CpuStreakManager.getStreak()}x Streak
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {[
+                              { key: CpuAction.OFF, labelPt: 'Desativado (Normal)', labelEn: 'Off (Normal)' },
+                              { key: CpuAction.DEFEND_ALWAYS, labelPt: 'Defender Sempre', labelEn: 'Defend Always' },
+                              { key: CpuAction.COUNTER_ATTACK, labelPt: 'Contra-Atacar', labelEn: 'Counter Attack' },
+                              { key: CpuAction.REFLECT_BEAM, labelPt: 'Refletir Beam', labelEn: 'Reflect Beam' },
+                              { key: CpuAction.FULL_AI, labelPt: 'IA Completa', labelEn: 'Full AI' },
+                            ].map(act => (
+                              <button
+                                key={act.key}
+                                onClick={() => setCpuAction(act.key)}
+                                className={`
+                                  py-3 px-4 rounded-lg font-bold uppercase tracking-wider border transition-all flex items-center justify-between
+                                  ${currentCpuAction === act.key 
+                                    ? 'bg-orange-500/20 border-orange-500 text-orange-400' 
+                                    : 'bg-black/40 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'}
+                                `}
+                              >
+                                <span className="text-xs font-bold">{isPt ? act.labelPt : act.labelEn}</span>
+                                {currentCpuAction === act.key && <CheckCircle2 className="w-5 h-5 text-orange-400" />}
+                              </button>
+                            ))}
+                          </div>
+
+                          {currentCpuAction === CpuAction.COUNTER_ATTACK && (
+                            <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+                              <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest">
+                                {isPt ? "Tipo de Golpe do Contra-Ataque" : "Counter-Attack Move Type"}
+                              </h4>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {[
+                                  { key: CounterAttackType.LIGHT, labelPt: 'Golpe Leve', labelEn: 'Light Attack' },
+                                  { key: CounterAttackType.MEDIUM, labelPt: 'Golpe Médio', labelEn: 'Medium Attack' },
+                                  { key: CounterAttackType.HEAVY, labelPt: 'Golpe Forte / Lançador', labelEn: 'Heavy / Launcher' },
+                                  { key: CounterAttackType.SPECIAL, labelPt: 'Especial / Ki Blast', labelEn: 'Special / Ki Blast' },
+                                  { key: CounterAttackType.ULTIMATE, labelPt: 'Ataque Supremo', labelEn: 'Ultimate Attack' },
+                                ].map(ct => (
+                                  <button
+                                    key={ct.key}
+                                    onClick={() => setCounterAttackType(ct.key)}
+                                    className={`
+                                      py-2 px-3 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all text-center
+                                      ${currentCounterAttackType === ct.key
+                                        ? 'bg-orange-500/30 border-orange-500 text-white'
+                                        : 'bg-black/30 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'}
+                                    `}
+                                  >
+                                    {isPt ? ct.labelPt : ct.labelEn}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </motion.div>
                     )}
 

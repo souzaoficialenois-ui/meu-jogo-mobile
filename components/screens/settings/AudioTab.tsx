@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2, VolumeX, Download, CheckCircle, Play, Activity } from 'lucide-react';
+import { Volume2, VolumeX, Download, CheckCircle, Play, Activity, Radio } from 'lucide-react';
 import { PanelCard, SettingRow, Slider } from './SettingsSharedComponents';
 import { AudioManager } from '../../../services/AudioManager';
 import { UISoundManager } from '../../../services/UISoundManager';
@@ -8,6 +8,7 @@ import { ManifestManager } from '../../../services/ManifestManager';
 import { DownloadManager, DownloadProgress } from '../../../services/DownloadManager';
 import { AudioDownloadManager } from '../../../services/AudioDownloadManager';
 import { CacheManager } from '../../../services/CacheManager';
+import { SpatialAudioService, SpatialAudioMode } from '../../../services/SpatialAudioService';
 
 interface AudioTabProps {
     settings: any;
@@ -102,6 +103,66 @@ export const AudioTab: React.FC<AudioTabProps> = ({ settings, updateSettings, is
                         onTest={() => AudioManager.getInstance().playSFX('punch')}
                     />
                 </SettingRow>
+            </PanelCard>
+
+            <PanelCard 
+                title={isPt ? 'Áudio Espacial 2D (Panorama Por Lado)' : '2D Spatial Audio (Pan By Side)'} 
+                subtitle={isPt ? 'Distribuição de som nos canais esquerdo e direito baseada na posição do personagem na tela' : 'Distributes sound between left and right channels based on character screen position'} 
+                icon={Radio}
+            >
+                <div className="space-y-4">
+                    <p className="text-stone-400 text-xs font-semibold leading-relaxed">
+                        {isPt 
+                          ? 'O sistema de áudio espacial distribui os sons de ataques, explosões, magias e vozes entre o canal esquerdo e direito dependendo da posição do personagem em relação ao centro da tela.'
+                          : 'Spatial audio system distributes attacks, explosions, ki blasts and voice lines between left and right speakers depending on character position relative to screen center.'}
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                        {[
+                            {
+                                id: 'DISABLED' as SpatialAudioMode,
+                                label: isPt ? 'DESATIVADO' : 'DISABLED',
+                                desc: isPt ? 'Panorama fixo no centro' : 'Fixed center stereo pan'
+                            },
+                            {
+                                id: 'NORMAL' as SpatialAudioMode,
+                                label: isPt ? 'NORMAL' : 'NORMAL',
+                                desc: isPt ? 'Divisão da tela (Esquerda/Centro/Direita)' : 'Screen division (Left/Center/Right)'
+                            },
+                            {
+                                id: 'ADVANCED' as SpatialAudioMode,
+                                label: isPt ? 'AVANÇADO' : 'ADVANCED',
+                                desc: isPt ? 'Panorama suave e contínuo' : 'Smooth continuous panning'
+                            }
+                        ].map((option) => {
+                            const currentMode = settings.spatialAudioMode || SpatialAudioService.getInstance().getMode();
+                            const isSelected = currentMode === option.id;
+                            return (
+                                <button
+                                    key={option.id}
+                                    onClick={() => {
+                                        SpatialAudioService.getInstance().setMode(option.id);
+                                        updateSettings({ spatialAudioMode: option.id });
+                                        UISoundManager.getInstance().playSFX('confirm');
+                                    }}
+                                    className={`p-4 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                                        isSelected 
+                                            ? 'bg-orange-500/15 border-orange-500 text-white shadow-lg shadow-orange-500/10' 
+                                            : 'bg-stone-900/50 border-white/5 text-stone-400 hover:bg-stone-800/50 hover:text-stone-200'
+                                    }`}
+                                >
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="font-black text-xs uppercase tracking-wider">{option.label}</span>
+                                            {isSelected && <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />}
+                                        </div>
+                                        <p className="text-[11px] opacity-80 leading-tight">{option.desc}</p>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
             </PanelCard>
 
             <PanelCard title={isPt ? 'Áudio do Sistema' : 'System Audio'} subtitle={isPt ? 'Gerencie sons de announcer (Ready, Fight, KO)' : 'Download and manage interface announcer sound effects'} icon={Volume2}>

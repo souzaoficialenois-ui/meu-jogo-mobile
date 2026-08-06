@@ -4,6 +4,8 @@ import { useSceneManager } from '../../contexts/SceneContext';
 import { SceneName, CharacterData, RarityTier } from '../../types';
 import { RARITY_INFO, BASE_CHARACTERS, RESOURCE_SPRITES } from '../../constants';
 import { SummonManager } from '../../services/SummonManager';
+import { TitleManager } from '../../services/TitleManager';
+import { PlayerTitleBadge } from '../ui/PlayerTitleBadge';
 import { AudioManager } from '../../services/AudioManager';
 import { 
     ChevronLeft, 
@@ -26,7 +28,8 @@ import {
     Shield,
     Trash2,
     Eye,
-    X
+    X,
+    Ticket
 } from 'lucide-react';
 import { useUI, UIProvider } from '../../contexts/UIContext';
 import { EvolutionModal } from '../EvolutionModal';
@@ -41,6 +44,7 @@ const WarehouseScreenContent: React.FC = () => {
         gems, 
         rouletteCoins, 
         bannerTokens,
+        roomTokens,
         unlockedItems, 
         unlockedCharacters, 
         playerProfile,
@@ -49,8 +53,10 @@ const WarehouseScreenContent: React.FC = () => {
         setEquippedSkins,
         upgradeStat,
         markItemAsSeen,
+        settings,
         t
     } = useSceneManager();
+    const isPt = settings?.language === 'pt' || settings?.language?.startsWith('pt') || true;
     const { s } = useUI();
     const equippedSkins = rawEquippedSkins || {};
 
@@ -75,6 +81,7 @@ const WarehouseScreenContent: React.FC = () => {
         const possibleCurrencies = [
             { id: 'curr_gems', name: 'Diamantes', amount: gems, category: 'Recurso', description: 'Moeda premium utilizada para giros em qualquer roleta e compras exclusivas na loja.', icon: GemIcon, color: '#22d3ee' },
             { id: 'curr_coins', name: 'Ouro', amount: coins, category: 'Recurso', description: 'Moeda comum ganha em combates, missões e passe de batalha. Usada para melhorias de atributos de personagens.', icon: Coins, color: '#facc15' },
+            { id: 'curr_room_tokens', name: 'Token de Sala', amount: roomTokens, category: 'Recurso', description: 'Token necessário para criar salas públicas ou privadas de combate no modo Multijogador. Cada sala criada consome 1 Token de Sala. Obtido gratuitamente assistindo anúncios ou concluindo missões.', icon: Ticket, color: '#f97316' },
         ];
 
         possibleCurrencies.forEach(curr => {
@@ -232,21 +239,24 @@ const WarehouseScreenContent: React.FC = () => {
         });
 
         // 4. Titles
-        if (playerProfile?.unlockedTitles) {
-            playerProfile.unlockedTitles.forEach(titleId => {
-                pool.push({
-                    id: `title_${titleId}`,
-                    name: titleId,
-                    category: t('category_titles') || 'Títulos',
-                    rarity: 'LEGENDARY',
-                    description: t('desc_title') || 'Um título honorário para exibir em seu perfil de jogador.',
-                    isUnlocked: true,
-                    type: 'GACHA_ITEM', // Reuse type for simplicity
-                    subCategory: 'Title',
-                    imageUrl: RESOURCE_SPRITES[`TITLE_${titleId.toUpperCase().replace(/\s+/g, '_')}`] || RESOURCE_SPRITES.TITLE_LEGEND
-                });
+        const unlockedTitlesSet = new Set<string>(playerProfile?.unlockedTitles || ['warrior']);
+        unlockedTitlesSet.add('warrior');
+
+        TitleManager.getAllTitles().forEach(titleDef => {
+            const isUnlocked = unlockedTitlesSet.has(titleDef.id) || (titleDef.checkUnlock && playerProfile ? titleDef.checkUnlock(playerProfile) : false);
+            pool.push({
+                id: `title_${titleDef.id}`,
+                name: isPt ? titleDef.name.pt_br : titleDef.name.en_us,
+                category: t('category_titles') || 'Títulos',
+                rarity: titleDef.rarity,
+                description: isPt ? titleDef.description.pt_br : titleDef.description.en_us,
+                isUnlocked,
+                type: 'GACHA_ITEM',
+                subCategory: 'Title',
+                rawTitleId: titleDef.id,
+                imageUrl: titleDef.img || RESOURCE_SPRITES.TITLE_LEGEND
             });
-        }
+        });
 
         return pool;
     }, [unlockedCharacters, unlockedItems, currencyItems]);
@@ -296,12 +306,10 @@ const WarehouseScreenContent: React.FC = () => {
         if (skinId.includes('goku_ui_dom')) characterId = 'goku_mui';
         else if (skinId.includes('broly')) characterId = 'broly_lssj';
         
-        setEquippedSkins(prev => {
-            const updated = { ...prev };
-            if (updated[characterId] === skinId) delete updated[characterId];
-            else updated[characterId] = skinId;
-            return updated;
-        });
+        const updated = { ...equippedSkins };
+        if (updated[characterId] === skinId) delete updated[characterId];
+        else updated[characterId] = skinId;
+        setEquippedSkins(updated);
         AudioManager.getInstance().playSFX('confirm');
         setSuccessMessage('Traje atualizado!');
         setTimeout(() => setSuccessMessage(null), 2000);
@@ -424,17 +432,32 @@ const WarehouseScreenContent: React.FC = () => {
                         <TabButton type="CURRENCIES" label="RECURSOS" icon={Coins} />
                     </div>
 
-                    {/* Search */}
-                    <div className="relative shrink-0">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500" size={s(16)} />
-                        <input 
-                            type="text" 
-                            placeholder="BUSCAR ITEM..." 
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
-                            className="w-full bg-stone-900 border border-stone-800 rounded-xl text-stone-100 font-black tracking-widest placeholder:text-stone-700 outline-none focus:border-orange-500 transition-all uppercase"
-                            style={{ height: s(48), paddingLeft: s(44), fontSize: s(12) }}
-                        />
+                    {/* Search & Titles Gallery Link */}
+                    <div className="flex items-center gap-2 shrink-0">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500" size={s(16)} />
+                            <input 
+                                type="text" 
+                                placeholder="BUSCAR ITEM..." 
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
+                                className="w-full bg-stone-900 border border-stone-800 rounded-xl text-stone-100 font-black tracking-widest placeholder:text-stone-700 outline-none focus:border-orange-500 transition-all uppercase"
+                                style={{ height: s(48), paddingLeft: s(44), fontSize: s(12) }}
+                            />
+                        </div>
+                        {activeTab === 'TITLES' && (
+                            <button
+                                onClick={() => {
+                                    AudioManager.getInstance().playSFX('confirm');
+                                    changeScene(SceneName.TITLES_GALLERY);
+                                }}
+                                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-stone-950 font-black uppercase tracking-wider rounded-xl shadow-md transition-all shrink-0 cursor-pointer flex items-center gap-1"
+                                style={{ height: s(48), padding: `0 ${s(16)}px`, fontSize: s(11) }}
+                            >
+                                <Award size={s(14)} />
+                                GALERIA
+                            </button>
+                        )}
                     </div>
 
                     {/* Grid */}
@@ -591,7 +614,9 @@ const WarehouseScreenContent: React.FC = () => {
                                         {selectedItem.isUnlocked && selectedItem.type === 'GACHA_ITEM' && selectedItem.subCategory === 'Title' && (
                                             <button 
                                                 onClick={() => {
-                                                    updateProfile(playerProfile.name, playerProfile.avatarId, playerProfile.backgroundId || '1', playerProfile.unlockedTitles, selectedItem.name);
+                                                    if (playerProfile) {
+                                                        updateProfile(playerProfile.name, playerProfile.avatarId, playerProfile.backgroundId || '1', playerProfile.bio, selectedItem.name);
+                                                    }
                                                     setSuccessMessage(`Título "${selectedItem.name}" equipado!`);
                                                     setTimeout(() => setSuccessMessage(null), 2000);
                                                     AudioManager.getInstance().playSFX('confirm');
@@ -691,9 +716,9 @@ const WarehouseScreenContent: React.FC = () => {
                                     <div className="mb-6">
                                         <label className="text-stone-500 font-black italic uppercase text-[10px] mb-2 block">SELECIONE O HERÓI:</label>
                                         <div className="grid grid-cols-5 gap-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                                            {BASE_CHARACTERS.map(char => (
+                                            {BASE_CHARACTERS.map((char, index) => (
                                                 <button 
-                                                    key={char.id}
+                                                    key={`wh-char-${char.id}-${index}`}
                                                     onClick={() => { setTargetCharId(char.id); AudioManager.getInstance().playSFX('click'); }}
                                                     className={`aspect-square rounded-lg overflow-hidden border-2 transition-all ${targetCharId === char.id ? 'border-orange-500' : 'border-stone-800 opacity-50'}`}
                                                 >

@@ -98,7 +98,9 @@ export const MultiplayerScreen: React.FC = () => {
         isModerator,
         isVeteran,
         setStageTheme,
-        setBattleMusic
+        setBattleMusic,
+        roomTokens,
+        spendRoomTokens
     } = useSceneManager();
     const { s, sx, sy, getPos } = useUI();
     
@@ -169,6 +171,7 @@ export const MultiplayerScreen: React.FC = () => {
     const [showPasswordPrompt, setShowPasswordPrompt] = useState<any>(null);
     const [passwordInput, setPasswordInput] = useState('');
     const [opponentChar, setOpponentChar] = useState<CharacterData | null>(null);
+    const [isSpectator, setIsSpectator] = useState(false);
 
     const net = NetworkManager.getInstance();
     const lobby = LobbyService.getInstance();
@@ -445,6 +448,11 @@ export const MultiplayerScreen: React.FC = () => {
             setErrorMsg("Perfil não carregado. Faça login novamente.");
             return;
         }
+
+        if (roomTokens < 1) {
+            setErrorMsg("Você não possui Tokens de Sala suficientes! Clique em 'GANHAR TOKENS GRÁTIS' para assistir a um anúncio e obter 2 Tokens de Sala!");
+            return;
+        }
         
         setIsCreating(true);
         setErrorMsg(null);
@@ -457,6 +465,9 @@ export const MultiplayerScreen: React.FC = () => {
             console.log("Creating custom room in lobby...");
             const roomId = await lobby.createCustomRoom(roomConfig, playerProfile, peerId);
             console.log("Room created with ID:", roomId);
+
+            // Deduct 1 Room Token
+            spendRoomTokens(1);
             
             setCurrentRoom({ id: roomId, ...roomConfig, hostId: playerProfile.playerId });
             net.isHost = true;
@@ -486,6 +497,8 @@ export const MultiplayerScreen: React.FC = () => {
             const peerId = await net.initializeHost(playerProfile.numericId); 
             await lobby.joinRoom(room.id, playerProfile, peerId);
             net.isHost = false;
+            net.isSpectator = false;
+            setIsSpectator(false);
             net.connectToPeer(room.hostPeerId);
             setCurrentRoom(room);
             setView('ROOM');
@@ -493,6 +506,26 @@ export const MultiplayerScreen: React.FC = () => {
             setPasswordInput('');
         } catch (e) {
             setErrorMsg("Failed to join room.");
+        }
+    };
+
+    const joinRoomAsSpectator = async (room: any) => {
+        if (!playerProfile) return;
+        try {
+            setIsSpectator(true);
+            net.isSpectator = true;
+            net.isHost = false;
+
+            const peerId = await net.initializeHost(playerProfile.numericId);
+            await lobby.joinRoomAsSpectator(room.id, playerProfile, peerId);
+            if (room.hostPeerId) {
+                net.connectToPeer(room.hostPeerId);
+            }
+            setCurrentRoom(room);
+            setView('ROOM');
+        } catch (e) {
+            console.error("Error joining as spectator:", e);
+            setErrorMsg("Erro ao entrar como espectador.");
         }
     };
 
@@ -752,11 +785,18 @@ export const MultiplayerScreen: React.FC = () => {
 
     const leaveRoom = async () => {
         if (currentRoom) {
-            await lobby.leaveRoom(currentRoom.id, playerProfile?.id || auth.currentUser?.uid || '');
+            const uid = playerProfile?.playerId || (playerProfile as any)?.id || auth.currentUser?.uid || '';
+            if (isSpectator) {
+                await lobby.leaveRoomAsSpectator(currentRoom.id, uid);
+            } else {
+                await lobby.leaveRoom(currentRoom.id, uid);
+            }
             net.reset();
+            setIsSpectator(false);
             setCurrentRoom(null);
             setView('BROWSER');
         } else {
+            setIsSpectator(false);
             setView('BROWSER');
         }
     };
@@ -881,6 +921,7 @@ export const MultiplayerScreen: React.FC = () => {
                                             rooms={publicRooms}
                                             refreshRooms={refreshRooms}
                                             joinRoom={joinRoom}
+                                            joinRoomAsSpectator={joinRoomAsSpectator}
                                             searchQuery={searchQuery}
                                             setSearchQuery={setSearchQuery}
                                             errorMsg={errorMsg}
@@ -929,6 +970,7 @@ export const MultiplayerScreen: React.FC = () => {
                             playSFX={(id) => AudioManager.getInstance().playSFX(id)}
                             AVATAR_LIST={AVATAR_LIST}
                             t={t}
+                            isSpectator={isSpectator}
                         />
                     </motion.div>
                 )}
@@ -950,6 +992,7 @@ export const MultiplayerScreen: React.FC = () => {
                             <BattleCharacterSelectionScreen
                                 overrideMaxSelection={currentRoom?.maxCharacters || 1}
                                 isMultiplayer={true}
+                                opponentTeamIds={net.isHost ? currentRoom?.guestCharacters : currentRoom?.hostCharacters}
                                 onTeamChange={async (teamIds) => {
                                     if (currentRoom) {
                                         await lobby.updateReadyStatus(currentRoom.id, net.isHost, myReady, teamIds);
@@ -1260,7 +1303,7 @@ export const MultiplayerScreen: React.FC = () => {
                                     const Icon = item.icon;
                                     return (
                                         <button
-                                            key={item.id}
+                                            key={`mp-stage-${item.id}-${i}`}
                                             onClick={() => !myReady && handleSelectStage(item.id)}
                                             className={`
                                                 relative flex-1 rounded-2xl overflow-hidden transition-all duration-300 transform group cursor-pointer
@@ -1295,7 +1338,7 @@ export const MultiplayerScreen: React.FC = () => {
                                     const isSelected = selectedMusic === item.id;
                                     return (
                                         <button
-                                            key={item.id}
+                                            key={`mp-music-${item.id}-${i}`}
                                             onClick={() => !myReady && handleSelectMusic(item.id)}
                                             className={`
                                                 relative flex-1 rounded-2xl overflow-hidden transition-all duration-300 transform group cursor-pointer
@@ -1402,7 +1445,10 @@ export const MultiplayerScreen: React.FC = () => {
                                 type="password" 
                                 value={passwordInput}
                                 onChange={e => setPasswordInput(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && joinRoom(showPasswordPrompt, passwordInput)}
+                                onKeyDown={e => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') joinRoom(showPasswordPrompt, passwordInput);
+                                }}
                                 className="w-full bg-black/60 border border-white/10 rounded-xl font-black italic text-white focus:border-red-500 focus:outline-none transition-all uppercase placeholder:text-slate-800"
                                 style={{ padding: `${s(16)}px ${s(24)}px`, marginBottom: s(24), fontSize: s(16) }}
                                 placeholder="ENTER_KEY"

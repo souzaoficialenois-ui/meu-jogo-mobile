@@ -10,7 +10,7 @@ const URLS = {
   carregando_ki_1: `${BASE_URL}carregando_ki_1.gif`,
   carregando_ki_2: `${BASE_URL}carregando_ki_2.gif`,
   carregando_ki_3: `${BASE_URL}carregando_ki_3.gif`,
-  dano_1: `${BASE_URL}dano_1.gif`,
+  dano_1: `${BASE_URL}caindo.gif`,
   defesa: `${BASE_URL}defesa.gif`,
   defesa_agachado: `${BASE_URL}defesa_agachado.gif`,
   defesa_ar: `${BASE_URL}defesa_ar.gif`,
@@ -114,7 +114,10 @@ export const TeenGohanSSJ2: CharacterData = {
       [PlayerState.FALLING_HIT_GROUND]: createGifAnim(URLS.dano_1, false),
 
       [PlayerState.CHARGE_START]: createGifAnim(URLS.carregando_ki_1, false),
-      [PlayerState.CHARGING]: createGifAnim(URLS.carregando_ki_2, true),
+      [PlayerState.CHARGING]: {
+        ...createGifAnim(URLS.carregando_ki_2, true),
+        auraConfigKey: "CHAVE_AURA_007"
+      },
       [PlayerState.CHARGE_END]: createGifAnim(URLS.carregando_ki_3, false),
 
       [PlayerState.BLOCKING]: createGifAnim(URLS.defesa, false),
@@ -171,6 +174,7 @@ export const TeenGohanSSJ2: CharacterData = {
       Ultimate_2_6: createGifAnim(URLS.ultimate_2_parte2_2, false),
       Ultimate_2_7: createGifAnim(URLS.ultimate_2_parte2_3, false),
       [PlayerState.STANDBY]: createGifAnim(URLS.parado, true),
+      TAG_IN_KO: createGifAnim(URLS.introducao_1_1, false),
       [PlayerState.TAG_IN]: createGifAnim(URLS.introducao_1_1, false),
       [PlayerState.TAG_OUT]: createGifAnim(URLS.parado, false),
       [PlayerState.ASSIST_ENTRY]: createGifAnim(URLS.parado, false),

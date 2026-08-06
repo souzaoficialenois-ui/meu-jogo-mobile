@@ -46,7 +46,7 @@ export class BattleSFXManager {
         return AudioSettings.getInstance().isMuted(SoundCategory.SFX);
     }
 
-    public playSFX(key: string, customMultiplier: number = 1.0) {
+    public playSFX(key: string, customMultiplier: number = 1.0, worldX?: number, getPositionX?: () => number) {
         if (!AudioManager.isInBattle) {
             const isWhiteListed = [
                 'click', 'confirm', 'cancel', 'reveal', 'summon',
@@ -61,7 +61,7 @@ export class BattleSFXManager {
                 return;
             }
         }
-        NewSFXManager.getInstance().playSFX(key, customMultiplier);
+        NewSFXManager.getInstance().playSFX(key, customMultiplier, worldX, getPositionX);
     }
 
     public stopAllSFX() {

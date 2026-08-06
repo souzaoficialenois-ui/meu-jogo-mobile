@@ -4,9 +4,12 @@ import { useSceneManager } from '../../contexts/SceneContext';
 import { SceneName, CharacterData, RarityTier } from '../../types';
 import { BASE_CHARACTERS, SHOP_PRICES, RARITY_INFO, RESOURCE_SPRITES } from '../../constants';
 import { AudioManager } from '../../services/AudioManager';
-import { Shield, Activity, Sword, Key, Filter, ShoppingCart, ChevronLeft, ChevronRight, Check, X } from 'lucide-react';
+import { Shield, Activity, Sword, Key, Filter, ShoppingCart, ChevronLeft, ChevronRight, Check, X, Tv } from 'lucide-react';
 import { useUI, UIProvider } from '../../contexts/UIContext';
 import { KiParticles } from '../KiParticles';
+import { AdOverlayModal } from '../ads/AdOverlayModal';
+import { RewardToastModal } from '../ads/RewardToastModal';
+import { AdManager } from '../../services/AdManager';
 
 const RARITY_COLORS: Record<RarityTier, { text: string, border: string, bg: string, glow: string }> = {
     COMMON: { text: 'text-stone-400', border: 'border-stone-500/30', bg: 'bg-stone-500/10', glow: '' },
@@ -17,14 +20,39 @@ const RARITY_COLORS: Record<RarityTier, { text: string, border: string, bg: stri
 };
 
 const ShopScreenContent: React.FC = () => {
-    const { changeScene, coins, unlockedCharacters, buyCharacter, redeemCode } = useSceneManager();
+    const { changeScene, coins, addCoins, addGems, addRoomTokens, unlockedCharacters, buyCharacter, redeemCode } = useSceneManager();
     const { s } = useUI();
     
     const [selectedRarity, setSelectedRarity] = useState<RarityTier | 'ALL'>('ALL');
     const [previewCharId, setPreviewCharId] = useState<string | null>(null);
     const [isRedeemOpen, setIsRedeemOpen] = useState(false);
+    const [isAdOpen, setIsAdOpen] = useState(false);
     const [redeemInput, setRedeemInput] = useState('');
     const [redeemFeedback, setRedeemFeedback] = useState<{msg: string, success: boolean} | null>(null);
+    const [rewardToast, setRewardToast] = useState<{
+        isOpen: boolean;
+        title?: string;
+        coins?: number;
+        gems?: number;
+        tokens?: number;
+    } | null>(null);
+
+    const handleAdClose = (receivedReward: boolean) => {
+        setIsAdOpen(false);
+        if (receivedReward) {
+            addCoins(300);
+            if (addGems) addGems(30);
+            if (addRoomTokens) addRoomTokens(1);
+            AudioManager.getInstance().playSFX('victory');
+            setRewardToast({
+                isOpen: true,
+                title: "¡RECOMPENSA DE VÍDEO RECEBIDA!",
+                coins: 300,
+                gems: 30,
+                tokens: 1
+            });
+        }
+    };
 
     const shopList = useMemo(() => {
         return BASE_CHARACTERS.filter(c => {
@@ -54,11 +82,11 @@ const ShopScreenContent: React.FC = () => {
         }
     };
 
-    const handleRedeem = (e: React.FormEvent) => {
+    const handleRedeem = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!redeemInput.trim()) return;
         
-        const result = redeemCode(redeemInput.trim().toUpperCase());
+        const result = await redeemCode(redeemInput.trim().toUpperCase());
         setRedeemFeedback({ msg: result.message, success: result.success });
         
         if (result.success) {
@@ -160,9 +188,21 @@ const ShopScreenContent: React.FC = () => {
 
                 <div className="flex items-center bg-stone-900 border-2 border-stone-700 rounded-full" style={{ gap: s(16), padding: `${s(8)}px ${s(24)}px` }}>
                     <button 
+                        onClick={() => {
+                            AudioManager.getInstance().playSFX('click');
+                            setIsAdOpen(true);
+                        }}
+                        className="flex items-center font-black uppercase tracking-widest text-slate-950 bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 transition-all cursor-pointer px-3.5 py-1.5 rounded-full shadow-lg shadow-amber-500/20 active:scale-95 border border-amber-300/40"
+                        style={{ gap: s(8) }}
+                    >
+                        <Tv style={{ width: s(16), height: s(16) }} className="animate-bounce" />
+                        <span className="inline font-extrabold" style={{ fontSize: s(12) }}>GANHAR RECOMPENSAS</span>
+                    </button>
+                    <div className="bg-white/20" style={{ width: s(1), height: s(24) }} />
+                    <button 
                         onClick={() => setIsRedeemOpen(true)}
                         className="flex items-center font-black uppercase tracking-widest text-stone-400 hover:text-orange-500 transition-colors cursor-pointer"
-                        style={{ gap: s(8), marginRight: s(8) }}
+                        style={{ gap: s(8) }}
                     >
                         <Key style={{ width: s(16), height: s(16) }} />
                         <span className="inline" style={{ fontSize: s(14) }}>CÓDIGO</span>
@@ -204,7 +244,7 @@ const ShopScreenContent: React.FC = () => {
                     {/* Roster Scroll Area */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
                         <div className="grid grid-cols-2 md:grid-cols-3" style={{ gap: s(12) }}>
-                            {shopList.map(char => {
+                            {shopList.map((char, index) => {
                                 const isPreview = activePreviewId === char.id;
                                 const charIsOwned = unlockedCharacters.some(u => u.id === char.id);
                                 const charPrice = SHOP_PRICES[char.rarity];
@@ -212,7 +252,7 @@ const ShopScreenContent: React.FC = () => {
 
                                 return (
                                     <motion.button
-                                        key={`shop-${char.id}`}
+                                        key={`shop-${char.id}-${index}`}
                                         onClick={() => {
                                             setPreviewCharId(char.id);
                                             AudioManager.getInstance().playSFX('click');
@@ -304,8 +344,8 @@ const ShopScreenContent: React.FC = () => {
                                         </span>
                                     </div>
                                     <div className="flex" style={{ gap: s(8) }}>
-                                        {activePreviewChar.tags?.map((tag) => (
-                                            <span key={tag} className="bg-stone-800/80 rounded font-bold uppercase tracking-wider text-stone-300 border border-stone-700 backdrop-blur-sm" style={{ padding: `${s(4)}px ${s(8)}px`, fontSize: s(10) }}>
+                                        {activePreviewChar.tags?.map((tag, idx) => (
+                                            <span key={`tag-${tag}-${idx}`} className="bg-stone-800/80 rounded font-bold uppercase tracking-wider text-stone-300 border border-stone-700 backdrop-blur-sm" style={{ padding: `${s(4)}px ${s(8)}px`, fontSize: s(10) }}>
                                                 {tag}
                                             </span>
                                         ))}
@@ -433,6 +473,24 @@ const ShopScreenContent: React.FC = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <AdOverlayModal
+                isOpen={isAdOpen}
+                rewardConfig={{ type: 'COINS', amount: 300 }}
+                onClose={handleAdClose}
+            />
+
+            {/* Visual Feedback Modal */}
+            {rewardToast && (
+                <RewardToastModal
+                    isOpen={rewardToast.isOpen}
+                    title={rewardToast.title}
+                    coins={rewardToast.coins}
+                    gems={rewardToast.gems}
+                    tokens={rewardToast.tokens}
+                    onClose={() => setRewardToast(null)}
+                />
+            )}
 
             <style>{`
                 .custom-scrollbar::-webkit-scrollbar { width: 6px; }

@@ -4,6 +4,11 @@ import { MovePhase, PhasedMove, PlayerState, Vector2 } from '../types';
 import { GameEngine } from './GameEngine';
 import { CollisionHelper } from './CollisionHelper';
 import { AudioManager } from './AudioManager';
+import { Projectile } from './Projectile';
+import { ProjectileConfigKeyManager } from './ProjectileConfigKeyManager';
+import { BeamConfigKeyManager } from './BeamConfigKeyManager';
+import { FrameManager } from './FrameManager';
+import { ANIMATION_SPEED } from '../constants';
 
 export class MoveManager {
     private static instance: MoveManager;
@@ -44,6 +49,14 @@ export class MoveManager {
         
         if (moveId === 'INTRO') {
             player.state = PlayerState.INTRO;
+        } else if (moveId === 'INSTINTO') {
+            player.state = PlayerState.MUI_DODGE;
+        } else if (moveId === 'VICTORY') {
+            player.state = PlayerState.VICTORY;
+        } else if (moveId === 'DEFEAT') {
+            player.state = PlayerState.DEFEAT;
+        } else if (moveId === 'ULTIMATE') {
+            player.state = PlayerState.ULTIMATE;
         } else {
             player.state = PlayerState.ATTACKING;
         }
@@ -52,9 +65,7 @@ export class MoveManager {
     }
 
     private applyPhase(player: Player, phase: MovePhase) {
-        player.animFrame = 0;
-        player.animTimer = 0;
-        player.animFinished = false;
+        player.resetPhaseAnimationState();
         player.phaseFinished = false;
         player.phaseHitApplied = false;
         player.phaseTimer = 0;
@@ -131,11 +142,19 @@ export class MoveManager {
         }
 
         // 2. SFX/VFX
-        if (phase.sfxName && player.phaseTimer === phase.sfxFrame) {
+        if (phase.sfxName && player.phaseTimer === (phase.sfxFrame || 1)) {
             AudioManager.getInstance().playSFX(phase.sfxName);
         }
 
-        // 3. Hitbox Logic
+        // 3. Projectile / Beam Spawning
+        if (phase.projectile && player.phaseTimer === 1) {
+            this.spawnProjectile(player, phase.projectile, engine);
+        }
+        if (phase.createsBeam && player.phaseTimer === 1) {
+            this.spawnBeam(player, phase.createsBeam, engine);
+        }
+
+        // 4. Hitbox Logic
         if (phase.hitboxActive) {
             const startFrame = phase.hitboxStartFrame || 0;
             const endFrame = phase.hitboxEndFrame || (phase.duration || 999);
@@ -187,19 +206,20 @@ export class MoveManager {
         
         // Get the current animation data
         const anim = player.data.spriteConfig?.animations[player.currentPhaseAnim || player.state];
-        const isGif = anim && (anim.isGif || anim.imageUrl?.toLowerCase().endsWith('.gif'));
-        const isLooping = anim && anim.loop !== false;
+        const totalFrames = FrameManager.getInstance().getFrameCount(anim);
 
         if (phase.duration) {
-            // If duration is reached AND animation is finished (if it's a non-looping GIF)
+            // If duration is specified for the phase, transition when timer reaches duration
             if (player.phaseTimer >= phase.duration) {
-                if (isLooping || !isGif || player.animFinished || (player as any).customAnimFinishedThisFrame) {
-                    phaseEnded = true;
-                }
+                phaseEnded = true;
             }
-        } else if (player.animFinished || (player as any).customAnimFinishedThisFrame) {
-            // No duration, so we strictly wait for animation finish
-            phaseEnded = true;
+        } else {
+            // No duration specified: wait for animation completion or full display of last frame
+            const frameSpeed = anim?.speed ?? ANIMATION_SPEED;
+            const isLastFrameComplete = totalFrames > 0 && player.animFrame >= totalFrames - 1 && player.animTimer >= frameSpeed - 1;
+            if (player.animFinished || (player as any).customAnimFinishedThisFrame || isLastFrameComplete) {
+                phaseEnded = true;
+            }
         }
 
         if (phaseEnded) {
@@ -209,9 +229,23 @@ export class MoveManager {
 
     private onHit(player: Player, opponent: Player, phase: MovePhase, engine: GameEngine) {
         player.phaseHitApplied = true;
-        const dmg = phase.damage || 0;
+        let dmg = 0;
+        if ((phase as any).damagePercent !== undefined) {
+            dmg = opponent.maxHp * ((phase as any).damagePercent / 100);
+        } else if (phase.damage !== undefined && phase.damage > 0) {
+            if (phase.damage <= 100) {
+                dmg = opponent.maxHp * (phase.damage / 100);
+            } else {
+                dmg = phase.damage;
+            }
+        } else {
+            dmg = opponent.maxHp * 0.15; // 15% default for Special moves
+        }
         opponent.takeDamage(dmg);
         
+        const isOpponentArmored = this.isArmored(opponent);
+        if (isOpponentArmored) return; // Do not apply knockback/stun if armored
+
         if (phase.knockdown) {
             opponent.state = PlayerState.KNOCKED_DOWN;
             opponent.velocity.x = player.facingRight ? 5 : -5;
@@ -291,7 +325,78 @@ export class MoveManager {
         player.phaseTimer = 0;
         player.phaseFinished = false;
         player.phaseHitApplied = false;
+        player.resetPhaseAnimationState();
         player.ataque = false;
         player.state = player.isGrounded ? PlayerState.IDLE : PlayerState.FALLING;
+    }
+
+    private spawnProjectile(player: Player, projectileId: string, engine: GameEngine) {
+        const family = ProjectileConfigKeyManager.getInstance().getProjectileConfig(projectileId);
+        if (!family) return;
+
+        const ownerId = player === engine.player1 ? "p1" : "p2";
+        const spawnX = player.facingRight ? player.x + player.width : player.x;
+        const spawnY = player.y + player.height / 2;
+        const speed = family.middle?.speed || 15;
+        const vx = player.facingRight ? speed : -speed;
+
+        const proj = Projectile.spawn(
+            spawnX,
+            spawnY,
+            vx,
+            ownerId,
+            player.data.color || "#fff",
+            false,
+            projectileId,
+            family.middle?.frameWidth,
+            family.middle?.frameHeight,
+            family.middle?.offsetX,
+            family.middle?.offsetY,
+            family.middle?.scale,
+            speed,
+            family.behavior || "STRAIGHT"
+        );
+        proj.sourcePlayer = player;
+        engine.projectiles.push(proj);
+    }
+
+    private spawnBeam(player: Player, beamId: string, engine: GameEngine) {
+        const family = BeamConfigKeyManager.getInstance().getBeamConfig(beamId);
+        if (!family) return;
+
+        const ownerId = player === engine.player1 ? "p1" : "p2";
+        const spawnX = player.facingRight ? player.x + player.width : player.x;
+        const spawnY = player.y + player.height / 2;
+        
+        const proj = Projectile.spawn(
+            spawnX,
+            spawnY,
+            player.facingRight ? 15 : -15,
+            ownerId,
+            player.data.color || "#fff",
+            true,
+            beamId,
+            family.middle?.projectileWidth,
+            family.middle?.projectileHeight,
+            family.middle?.projectileOffsetX,
+            family.middle?.projectileOffsetY,
+            family.middle?.projectileScale || family.middle?.scale,
+            family.middle?.projectileSpeed,
+            family.behavior || "STRAIGHT"
+        );
+        proj.sourcePlayer = player;
+        proj.sourceAnimConfig = player.data.spriteConfig?.animations[player.currentPhaseAnim || ""];
+        engine.projectiles.push(proj);
+        (player as any).spawnedBeamProjectile = proj;
+    }
+
+    public isArmored(player: Player): boolean {
+        if (!player.currentPhasedMove) return false;
+        let move = player.data.phasedMoves?.[player.currentPhasedMove];
+        if (!move) move = this.moves.get(player.currentPhasedMove);
+        if (!move) return false;
+
+        const phase = move.phases[player.currentPhaseIndex];
+        return !!(phase && phase.armor);
     }
 }

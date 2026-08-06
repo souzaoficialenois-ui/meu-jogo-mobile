@@ -121,14 +121,12 @@ export const Kuririn_Beams: Record<string, CharacterBeamOverrides> = {
         "beamBrightness": 0.85,
         "beamOpacity": 1,
         "ownerCharacterId": "kuririn",
-        "ownerAnimationKey": "Ultimate_2_3",
+        "ownerAnimationKey": "ULTIMATE_2_3",
         "ownerCharacterName": "KURIRIN",
         "configKey": "CHAVE_BEAM_008",
         "baseBeamId": "CHAVE_BEAM_008"
     } as any,
     "CHAVE_BEAM_003": {
-        "id": "CHAVE_BEAM_003",
-        "name": "Beam 10",
         "start": {
             "imageUrl": "/Assets/especiais/beans/10/1.gif",
             "frames": 2,
@@ -180,10 +178,6 @@ export const Kuririn_Beams: Record<string, CharacterBeamOverrides> = {
             "scale": 3.15,
             "beamSpacing": -33
         },
-        "ownerCharacterId": "kuririn",
-        "ownerAnimationKey": "Ultimate_combinado_9",
-        "ownerCharacterName": "KURIRIN",
-        "configKey": "CHAVE_BEAM_003",
-        "baseBeamId": "CHAVE_BEAM_003"
+        "name": "Beam 10"
     } as any
 };

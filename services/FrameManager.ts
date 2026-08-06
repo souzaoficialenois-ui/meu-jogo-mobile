@@ -40,7 +40,8 @@ export class FrameManager {
         }
 
         // Consult AnimationManager if it's a GIF that hasn't been registered yet
-        if (anim.isGif) {
+        const isGifAnim = anim.isGif || (anim.imageUrl && anim.imageUrl.toLowerCase().endsWith('.gif'));
+        if (isGifAnim) {
             const count = AnimationManager.getInstance().getGifFrameCount(anim.imageUrl);
             if (count > 0) {
                 this.frameCounts.set(anim.imageUrl, count);
@@ -64,7 +65,8 @@ export class FrameManager {
         const total = this.getFrameCount(anim);
         
         // Prevent skipped animations for gifs that are still loading
-        if (anim.isGif && total === 999) return false;
+        const isGifAnim = anim.isGif || (anim.imageUrl && anim.imageUrl.toLowerCase().endsWith('.gif'));
+        if (isGifAnim && total === 999) return false;
         
         return currentFrame >= total - 1;
     }
@@ -84,7 +86,7 @@ export class FrameManager {
              return Math.max(1, Math.round(delays[actualFrameIndex] / 16.666));
         }
 
-        if (anim.isGif) {
+        if (anim.isGif || (anim.imageUrl && anim.imageUrl.toLowerCase().endsWith('.gif'))) {
             return AnimationManager.getInstance().getGifFrameDelay(anim.imageUrl, actualFrameIndex);
         }
 

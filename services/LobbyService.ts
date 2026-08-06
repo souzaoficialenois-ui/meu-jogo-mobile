@@ -232,6 +232,38 @@ export class LobbyService {
         });
     }
 
+    public async joinRoomAsSpectator(roomId: string, profile: PlayerProfile, peerId: string) {
+        if (!auth.currentUser) return;
+        const roomRef = doc(db, 'online_rooms_v2', roomId);
+        const snap = await getDoc(roomRef);
+        if (!snap.exists()) return;
+        
+        const data = snap.data();
+        const existing = data.spectators || [];
+        const spectatorData = {
+            uid: auth.currentUser.uid,
+            name: profile.name,
+            avatarId: profile.avatarId || '1',
+            title: profile.activeTitle || '',
+            numericId: profile.numericId || '0000',
+            peerId: peerId || ''
+        };
+        const filtered = existing.filter((s: any) => s.uid !== auth.currentUser!.uid);
+        filtered.push(spectatorData);
+        await updateDoc(roomRef, { spectators: filtered });
+    }
+
+    public async leaveRoomAsSpectator(roomId: string, userId: string) {
+        const roomRef = doc(db, 'online_rooms_v2', roomId);
+        const snap = await getDoc(roomRef);
+        if (!snap.exists()) return;
+        
+        const data = snap.data();
+        const existing = data.spectators || [];
+        const filtered = existing.filter((s: any) => s.uid !== userId);
+        await updateDoc(roomRef, { spectators: filtered });
+    }
+
     public async leaveRoom(roomId: string, userId: string) {
         const roomRef = doc(db, 'online_rooms_v2', roomId);
         const snap = await getDoc(roomRef);

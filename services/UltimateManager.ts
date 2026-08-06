@@ -21,6 +21,7 @@ import { MAX_KI, KI_GAIN_ON_DAMAGE } from "../constants";
 import { resolveAnimationKey } from "./AnimationResolver";
 import { VoiceManager } from "../src/engine/audio/VoiceManager";
 import { AudioManager } from "./AudioManager";
+import { CombatManager } from "./CombatManager";
 
 export class UltimateManager {
   public static updateUltimate(engine: GameEngine, p: Player, opp: Player) {
@@ -74,7 +75,7 @@ export class UltimateManager {
     if (p.data.id === "goku_mui" && p.ultType === 1) {
       if (p.ultPhase === 2) {
         freezeOpponent = false;
-      } else if (p.ultPhase >= 1 && p.ultPhase <= 9) {
+      } else if (p.ultPhase >= 1 && p.ultPhase <= 10) {
         freezeOpponent = true;
       }
     }
@@ -157,7 +158,7 @@ export class UltimateManager {
     if (p.data.id === "goku_mui" && p.ultType === 1) {
       p.comboStep = p.ultPhase - 1;
       switch (p.ultPhase) {
-        case 1: // Fase 1: Preparação
+        case 1: // Ultimate 1.1: Executar com personagem parado, sem deslocamento
           p.velocity.x = 0;
           p.velocity.y = 0;
           if (p.animFinished && p.ultTimer > 5) {
@@ -166,32 +167,37 @@ export class UltimateManager {
             p.animFinished = false;
           }
           break;
-        case 2: // Fase 2: Avanço
+
+        case 2: // Ultimate 1.2: Avanço na direção que está olhando por 0.5s (30 ticks)
           p.velocity.y = 0;
           p.velocity.x = p.facingRight ? 28 : -28;
 
-          // Check collision with opponent
+          // Verificar continuamente a colisão com o oponente
           const dist2X = Math.abs(p.pos.x - opp.pos.x);
           const dist2Y = Math.abs(p.pos.y - opp.pos.y);
           const coll2 = dist2X < (p.width + opp.width) / 2 + 10 && dist2Y < 150;
 
           if (coll2) {
+            // Caso ocorra colisão: Interromper avanço, confirmar acerto e prosseguir para 1.3
             p.velocity.x = 0;
             p.ultPhase = 3;
             p.ultTimer = 0;
             p.animFinished = false;
-            opp.takeDamage(5);
+            opp.takeDamage(5, p);
             opp.state = PlayerState.HIT;
             opp.stunTimer = 100;
-          } else if (p.ultTimer > 30) { // 0.5s at 60fps is 30 ticks
-            // Cancel if no collision
+          } else if (p.ultTimer >= 30) {
+            // Caso não ocorra colisão após 0.5s: Considerar falha e cancelar toda a sequência
+            p.velocity.x = 0;
             p.state = p.isGrounded ? PlayerState.IDLE : PlayerState.FALLING;
             p.ataque = false;
             p.ultPhase = 0;
             p.ultTimer = 0;
+            p.animFinished = false;
           }
           break;
-        case 3: // Fase 3: Impacto
+
+        case 3: // Ultimate 1.3: Personagem parado, sem deslocamento
           p.velocity.x = 0;
           p.velocity.y = 0;
           if (p.animFinished && p.ultTimer > 5) {
@@ -200,40 +206,46 @@ export class UltimateManager {
             p.animFinished = false;
           }
           break;
-        case 4: // Fase 4: Passagem (Atravessa instantaneamente)
+
+        case 4: // Ultimate 1.4: Avanço atravessando completamente o oponente
           p.velocity.x = 0;
           p.velocity.y = 0;
-          // Teleport behind opponent
+          // Reposiciona o personagem atravessando o oponente e virado corretamente
           const side = p.pos.x < opp.pos.x ? 1 : -1;
-          p.pos.x = opp.pos.x + side * 80;
+          p.pos.x = opp.pos.x + side * 90;
           p.facingRight = side < 0;
-          p.ultPhase = 5;
-          p.ultTimer = 0;
-          p.animFinished = false;
+
+          if (p.animFinished || p.ultTimer > 10) {
+            p.ultPhase = 5;
+            p.ultTimer = 0;
+            p.animFinished = false;
+          }
           break;
-        case 5: { // Fase 5: Sequência de 5 Teleportes
+
+        case 5: { // Ultimate 1.5: Sete (7) teleportes consecutivos com o oponente preso
           opp.state = PlayerState.HIT;
           opp.stunTimer = 60;
-          
-          // Opponent stuck to Goku's center
-          opp.pos.x = p.pos.x;
-          opp.pos.y = p.pos.y - p.height / 2 + opp.height / 2;
           opp.velocity.x = 0;
           opp.velocity.y = 0;
 
-          const telInt = 15;
-          const tIdx = Math.floor(p.ultTimer / telInt);
+          // O oponente permanece fixado ao personagem durante todos os teleportes
+          opp.pos.x = p.pos.x;
+          opp.pos.y = p.pos.y - p.height / 2 + opp.height / 2;
 
-          if (p.ultTimer % telInt === 0 && tIdx < 5) {
+          const telInt = 12; // Intervalo de cada teleporte
+          const tIdx = Math.floor(p.ultTimer / telInt); // 0 a 6 (7 teleportes)
+
+          if (p.ultTimer % telInt === 0 && tIdx < 7) {
             try {
               AudioManager.getInstance().playSFX("teleport");
             } catch (e) {}
 
-            if (tIdx === 4) {
-              // Last one on ground
+            if (tIdx === 6) {
+              // 7º Teleporte: No chão, ambos posicionados sobre o solo
               p.pos.y = WORLD_HEIGHT - engine.groundY;
+              opp.pos.y = WORLD_HEIGHT - engine.groundY;
             } else {
-              // Random teleports
+              // 1º ao 6º Teleporte: Posições aleatórias respeitando os limites do mapa
               const mX = engine.physLimitLeft + 150;
               const MX = engine.physLimitRight - 150;
               p.pos.x = mX + Math.random() * (MX - mX);
@@ -242,63 +254,134 @@ export class UltimateManager {
               p.pos.y = WORLD_HEIGHT - engine.groundY - (mY + Math.random() * (MY - mY));
             }
             p.facingRight = p.pos.x < engine.worldWidth / 2;
-            opp.takeDamage(15);
+            opp.takeDamage(10, p);
             try {
               engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y, true);
             } catch (e) {}
           }
 
-          if (p.ultTimer >= 75) { // 5 * 15
+          if (p.ultTimer >= 7 * telInt) { // Todos os 7 teleportes concluídos
             p.ultPhase = 6;
             p.ultTimer = 0;
             p.animFinished = false;
           }
           break;
         }
-        case 6: // Fase 6: Imobilização
+
+        case 6: { // Ultimate 1.6: Personagem parado. Reposicionamento fluido e contínuo do oponente
           p.velocity.x = 0;
           p.velocity.y = 0;
           opp.velocity.x = 0;
           opp.velocity.y = 0;
           opp.state = PlayerState.HIT;
           opp.stunTimer = 60;
-          
-          // Ensure opponent stays in place (gravity disabled by freezeOpponent)
-          // but we can enforce position if it was defined in previous phase
-          // Phase 5 ended on ground, so they stay on ground.
 
-          if (p.animFinished && p.ultTimer > 10) {
+          // Salva a posição inicial do oponente no início da fase 1.6
+          if (p.ultTimer === 1) {
+            p["ult1_6_startOppX"] = opp.pos.x;
+            p["ult1_6_startOppY"] = opp.pos.y;
+          }
+
+          const startX = p["ult1_6_startOppX"] ?? opp.pos.x;
+          const startY = p["ult1_6_startOppY"] ?? opp.pos.y;
+
+          // Ponto de fixação final desejado: acima e à frente do personagem
+          const targetOffsetX = p.facingRight ? 70 : -70;
+          const targetOffsetY = -120;
+          const targetX = p.pos.x + targetOffsetX;
+          const targetY = p.pos.y + targetOffsetY;
+
+          // Duração do reposicionamento fluido durante a animação 1.6
+          const dur1_6 = 30; // 0.5s de transição gradual
+          const progress = Math.min(1.0, p.ultTimer / dur1_6);
+
+          // Recalcula a posição do oponente a cada frame a partir do ponto de referência
+          opp.pos.x = startX + (targetX - startX) * progress;
+          opp.pos.y = startY + (targetY - startY) * progress;
+
+          if (p.animFinished && p.ultTimer >= dur1_6) {
             p.ultPhase = 7;
             p.ultTimer = 0;
             p.animFinished = false;
           }
           break;
-        case 7: // Fase 7
+        }
+
+        case 7: // Ultimate 1.7: Personagem parado. Permanência da fixação (acima e à frente)
           p.velocity.x = 0;
           p.velocity.y = 0;
+          opp.velocity.x = 0;
+          opp.velocity.y = 0;
+          opp.state = PlayerState.HIT;
+          opp.stunTimer = 60;
+
+          // Posição do oponente fixada e sincronizada com o personagem
+          opp.pos.x = p.pos.x + (p.facingRight ? 70 : -70);
+          opp.pos.y = p.pos.y - 120;
+
           if (p.animFinished && p.ultTimer > 5) {
             p.ultPhase = 8;
             p.ultTimer = 0;
             p.animFinished = false;
           }
           break;
-        case 8: // Fase 8
+
+        case 8: // Ultimate 1.8: Personagem parado. Permanência da fixação (acima e à frente)
           p.velocity.x = 0;
           p.velocity.y = 0;
+          opp.velocity.x = 0;
+          opp.velocity.y = 0;
+          opp.state = PlayerState.HIT;
+          opp.stunTimer = 60;
+
+          // Posição do oponente fixada e sincronizada com o personagem
+          opp.pos.x = p.pos.x + (p.facingRight ? 70 : -70);
+          opp.pos.y = p.pos.y - 120;
+
           if (p.animFinished && p.ultTimer > 5) {
             p.ultPhase = 9;
             p.ultTimer = 0;
             p.animFinished = false;
           }
           break;
-        case 9: // Fase 9: Parado
+
+        case 9: // Ultimate 1.9: Personagem parado. Permanência da fixação (acima e à frente)
           p.velocity.x = 0;
           p.velocity.y = 0;
-          if (p.ultTimer > 20) {
-            p.state = PlayerState.IDLE;
+          opp.velocity.x = 0;
+          opp.velocity.y = 0;
+          opp.state = PlayerState.HIT;
+          opp.stunTimer = 60;
+
+          // Posição do oponente fixada e sincronizada com o personagem
+          opp.pos.x = p.pos.x + (p.facingRight ? 70 : -70);
+          opp.pos.y = p.pos.y - 120;
+
+          if (p.animFinished && p.ultTimer > 5) {
+            p.ultPhase = 10;
+            p.ultTimer = 0;
+            p.animFinished = false;
+          }
+          break;
+
+        case 10: // Ultimate 1.10: Animação final do Ultimate. Encerramento da fixação e impacto final
+          p.velocity.x = 0;
+          p.velocity.y = 0;
+
+          if (p.ultTimer === 1) {
+            // Encerramento da fixação com o golpe/impacto final
+            opp.takeDamage(40, p);
+            opp.state = PlayerState.KNOCKED_DOWN;
+            opp.stunTimer = 60;
+          }
+
+          if (p.animFinished || p.ultTimer > 30) {
+            // Encerrar completamente o Ultimate e retornar ao estado padrão
+            p.state = p.isGrounded ? PlayerState.IDLE : PlayerState.FALLING;
             p.ataque = false;
             p.ultPhase = 0;
             p.ultTimer = 0;
+            p.animFinished = false;
           }
           break;
       }
@@ -331,7 +414,7 @@ export class UltimateManager {
             p.animFinished = false;
 
             // Deal initial small hit
-            opp.takeDamage(10);
+            opp.takeDamage(10, p);
             opp.state = PlayerState.HIT;
             opp.stunTimer = 60;
             try {
@@ -401,7 +484,7 @@ export class UltimateManager {
             p.facingRight = p.pos.x < engine.worldWidth / 2;
 
             // Deal tick damage
-            opp.takeDamage(10);
+            opp.takeDamage(10, p);
             try {
               engine.particleManager.spawnHitSpark(opp.x + opp.width / 2, opp.y + opp.height / 2, true);
             } catch (err) {}
@@ -448,7 +531,7 @@ export class UltimateManager {
           opp.stunTimer = 60;
 
           if (p.ultTimer % 5 === 0) {
-            opp.takeDamage(12);
+            opp.takeDamage(12, p);
             try {
               engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y, false);
               engine.particleManager.spawn("ENERGY", opp.pos.x, opp.pos.y, 8, "#60a5fa", { size: 20, speed: 8 });
@@ -466,7 +549,7 @@ export class UltimateManager {
           p.velocity.y = 0;
 
           if (p.ultTimer === 1) {
-            opp.takeDamage(45);
+            opp.takeDamage(45, p);
             opp.state = PlayerState.KNOCKED_DOWN;
             opp.stunTimer = 60;
             opp.velocity.y = -10;
@@ -527,7 +610,7 @@ export class UltimateManager {
               const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
               if (opp.invincibleTimer <= 0 && inY) {
                 if (isBlocking) {
-                  opp.takeDamage(10 * 0.1);
+                  opp.takeDamage(10 * 0.1, p);
                   opp.guard -= 10 * 0.5;
                   if (engine.particleManager)
                     engine.particleManager.spawn(
@@ -543,7 +626,7 @@ export class UltimateManager {
                     opp.stunTimer = 60;
                   }
                 } else {
-                  opp.takeDamage(10);
+                  opp.takeDamage(10, p);
                   opp.stunTimer = Math.max(opp.stunTimer, 20);
                 }
               }
@@ -576,7 +659,7 @@ export class UltimateManager {
               const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
               if (opp.invincibleTimer <= 0 && inY) {
                 if (isBlocking) {
-                  opp.takeDamage(100 * 0.1);
+                  opp.takeDamage(100 * 0.1, p);
                   opp.guard -= 100 * 0.5;
                   if (engine.particleManager)
                     engine.particleManager.spawn(
@@ -592,7 +675,7 @@ export class UltimateManager {
                     opp.stunTimer = 60;
                   }
                 } else {
-                  opp.takeDamage(100);
+                  opp.takeDamage(100, p);
                   opp.stunTimer = Math.max(opp.stunTimer, 20);
                 }
               }
@@ -715,7 +798,7 @@ export class UltimateManager {
 
         case 3: // 3. Lança Hakai
           p.velocity.y = 0;
-          if (genki && genki.genkidamaState === "ground") {
+          if (genki && (genki.genkidamaState === "ground" || genki.genkidamaState === "explode")) {
             p.ultPhase = 4;
             p.ultTimer = 0;
           } else if (!genki) {
@@ -885,7 +968,7 @@ export class UltimateManager {
               const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
               if (opp.invincibleTimer <= 0 && inY) {
                 if (isBlocking) {
-                  opp.takeDamage(10 * 0.1);
+                  opp.takeDamage(10 * 0.1, p);
                   opp.guard -= 10 * 0.5;
                   if (engine.particleManager) engine.particleManager.spawn("BLOCK", opp.pos.x, opp.pos.y - 50, 2, "#60a5fa");
                   opp.velocity.x = p.facingRight ? 5 : -5;
@@ -894,7 +977,7 @@ export class UltimateManager {
                     opp.stunTimer = 60;
                   }
                 } else {
-                  opp.takeDamage(10);
+                  opp.takeDamage(10, p);
                   opp.stunTimer = Math.max(opp.stunTimer, 20);
                 }
               }
@@ -912,7 +995,7 @@ export class UltimateManager {
               const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
               if (opp.invincibleTimer <= 0 && inY) {
                 if (isBlocking) {
-                  opp.takeDamage(100 * 0.1);
+                  opp.takeDamage(100 * 0.1, p);
                   opp.guard -= 100 * 0.5;
                   if (engine.particleManager) engine.particleManager.spawn("BLOCK", opp.pos.x, opp.pos.y - 50, 2, "#60a5fa");
                   opp.velocity.x = p.facingRight ? 5 : -5;
@@ -921,7 +1004,7 @@ export class UltimateManager {
                     opp.stunTimer = 60;
                   }
                 } else {
-                  opp.takeDamage(100);
+                  opp.takeDamage(100, p);
                   opp.stunTimer = Math.max(opp.stunTimer, 20);
                 }
               }
@@ -940,6 +1023,7 @@ export class UltimateManager {
               p.ataque = false;
               p.ultPhase = 0;
               p.ultTimer = 0;
+              p.ultType = 1;
             }
             break;
         }
@@ -1025,7 +1109,7 @@ export class UltimateManager {
             break;
           case 5: {
             p.velocity.y = 0;
-            if (genki && genki.genkidamaState === "ground") {
+            if (genki && (genki.genkidamaState === "ground" || genki.genkidamaState === "explode")) {
               p.ultPhase = 6;
               p.ultTimer = 0;
             } else if (!genki) {
@@ -1052,6 +1136,8 @@ export class UltimateManager {
               p.ataque = false;
               p.isGrounded = false;
               p.ultPhase = 0;
+              p.ultTimer = 0;
+              p.ultType = 1;
             }
             break;
         }
@@ -1106,7 +1192,7 @@ export class UltimateManager {
             p.facingRight = dirX >= 0;
 
             if (p.ultTimer === 1) {
-              opp.takeDamage(100);
+              opp.takeDamage(100, p);
               opp.state = PlayerState.HIT;
               opp.stunTimer = 65;
               opp.velocity.x = 0;
@@ -1148,8 +1234,8 @@ export class UltimateManager {
               (p as any).hasDecoupled = false;
             }
 
-            const animKey = "Ultimate_combinado_4";
-            const anim = p.data.spriteConfig?.animations?.[animKey];
+            const animKey = "ULTIMATE_3_4";
+            const anim = p.data.spriteConfig?.animations?.["ULTIMATE_3_4"] || p.data.spriteConfig?.animations?.["Ultimate_combinado_4"];
             let totalFrames = anim?.frames || 15;
             if (anim && anim.isGif && anim.imageUrl) {
               const gifFrames = AnimationManager.getInstance().getGifFrameCount(anim.imageUrl);
@@ -1205,7 +1291,7 @@ export class UltimateManager {
               // Aplica impulso de lançamento para frente e para cima (trajetória ascendente horizontal) no exato instante de desacoplamento
               if (!(p as any).hasDecoupled) {
                 (p as any).hasDecoupled = true;
-                opp.takeDamage(100);
+                opp.takeDamage(100, p);
 
                 // Elevada velocidade horizontal (58) e forte velocidade vertical para cima (-22) para uma trajetória alta e horizontal
                 opp.velocity.x = p.facingRight ? 58 : -58;
@@ -1272,7 +1358,7 @@ export class UltimateManager {
                 engine.camera.addScreenShake(45, 20, "IMPULSE", 1.2);
               }
 
-              const config: any = p.data.spriteConfig?.animations?.["Ultimate_combinado_6"] || {};
+              const config: any = p.data.spriteConfig?.animations?.["ULTIMATE_3_6"] || p.data.spriteConfig?.animations?.["Ultimate_combinado_6"] || {};
               const beamId = config.createsBeam || "CHAVE_BEAM_001";
               const activeBeam = BeamConfigKeyManager.getInstance().getBeamConfig(beamId);
               let famMiddle = (activeBeam || BEAM_DATABASE[beamId])?.middle;
@@ -1333,7 +1419,7 @@ export class UltimateManager {
             }
 
             if (p.ultTimer % 5 === 0) {
-              opp.takeDamage(25);
+              opp.takeDamage(25, p);
               opp.state = PlayerState.HIT;
               opp.stunTimer = 40;
               
@@ -1345,7 +1431,7 @@ export class UltimateManager {
             }
 
             if (p.ultTimer > 90) {
-              opp.takeDamage(100);
+              opp.takeDamage(100, p);
               opp.velocity.x = p.facingRight ? 15 : -15;
               opp.velocity.y = 8;
               opp.isGrounded = false;
@@ -1367,6 +1453,7 @@ export class UltimateManager {
               p.ataque = false;
               p.ultPhase = 0;
               p.ultTimer = 0;
+              p.ultType = 1;
             }
             break;
           }
@@ -1404,7 +1491,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
                 if (opp.invincibleTimer <= 0 && inY) {
                   if (isBlocking) {
-                    opp.takeDamage(10 * 0.1);
+                    opp.takeDamage(10 * 0.1, p);
                     opp.guard -= 10 * 0.5;
                     if (engine.particleManager)
                       engine.particleManager.spawn(
@@ -1420,7 +1507,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                       opp.stunTimer = 60;
                     }
                   } else {
-                    opp.takeDamage(10);
+                    opp.takeDamage(10, p);
                     opp.stunTimer = Math.max(opp.stunTimer, 20);
                   }
                 }
@@ -1462,7 +1549,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
                 if (opp.invincibleTimer <= 0 && inY) {
                   if (isBlocking) {
-                    opp.takeDamage(100 * 0.1);
+                    opp.takeDamage(100 * 0.1, p);
                     opp.guard -= 100 * 0.5;
                     if (engine.particleManager)
                       engine.particleManager.spawn(
@@ -1478,7 +1565,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                       opp.stunTimer = 60;
                     }
                   } else {
-                    opp.takeDamage(100);
+                    opp.takeDamage(100, p);
                     opp.stunTimer = Math.max(opp.stunTimer, 20);
                   }
                 }
@@ -1563,7 +1650,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           case 5: {
             // FINAL (THROW)
             p.velocity.y = 0;
-            if (genki && genki.genkidamaState === "ground") {
+            if (genki && (genki.genkidamaState === "ground" || genki.genkidamaState === "explode")) {
               p.ultPhase = 6;
               p.ultTimer = 0;
             } else if (!genki) {
@@ -1723,7 +1810,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                   opp.velocity.y = 0;
                   
                   if (p.ultTimer % 5 === 0) {
-                    opp.takeDamage(4);
+                    opp.takeDamage(4, p);
                     try {
                       engine.particleManager.spawnHitSpark(opp.x + opp.width / 2, opp.y + opp.height / 2, false);
                     } catch (err) {}
@@ -1736,7 +1823,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 if ((p as any).beamHasHitOpponent) {
                   if (opp.invincibleTimer <= 0) {
                     const finalDamage = 90;
-                    opp.takeDamage(finalDamage);
+                    opp.takeDamage(finalDamage, p);
                     opp.state = PlayerState.HIT;
                     opp.stunTimer = 60;
                     opp.velocity.x = p.facingRight ? 2 : -2;
@@ -1806,7 +1893,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 opp.y + opp.height > hy
               );
               if (collides) {
-                opp.takeDamage(100);
+                opp.takeDamage(100, p);
                 opp.state = PlayerState.STUNNED;
                 opp.stunTimer = 100;
                 if (engine.particleManager) {
@@ -1868,7 +1955,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 opp.y + opp.height > hy
               );
               if (collides) {
-                opp.takeDamage(100);
+                opp.takeDamage(100, p);
                 opp.state = PlayerState.STUNNED;
                 opp.stunTimer = 100;
                 if (engine.particleManager) {
@@ -2035,7 +2122,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                   opp.velocity.y = 0;
                   
                   if (p.ultTimer % 5 === 0) {
-                    opp.takeDamage(4);
+                    opp.takeDamage(4, p);
                     try {
                       engine.particleManager.spawnHitSpark(opp.x + opp.width / 2, opp.y + opp.height / 2, false);
                     } catch (err) {}
@@ -2048,7 +2135,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 if ((p as any).beamHasHitOpponent) {
                   if (opp.invincibleTimer <= 0) {
                     const finalDamage = 90;
-                    opp.takeDamage(finalDamage);
+                    opp.takeDamage(finalDamage, p);
                     opp.state = PlayerState.HIT;
                     opp.stunTimer = 60;
                     opp.velocity.x = p.facingRight ? 45 : -45;
@@ -2453,7 +2540,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
                 if (opp.invincibleTimer <= 0 && inY) {
                   if (isBlocking) {
-                    opp.takeDamage(10 * 0.1);
+                    opp.takeDamage(10 * 0.1, p);
                     opp.guard -= 10 * 0.5;
                     if (engine.particleManager)
                       engine.particleManager.spawn(
@@ -2469,7 +2556,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                       opp.stunTimer = 60;
                     }
                   } else {
-                    opp.takeDamage(10);
+                    opp.takeDamage(10, p);
                     opp.stunTimer = Math.max(opp.stunTimer, 20);
                   }
                 }
@@ -2586,7 +2673,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
                 if (opp.invincibleTimer <= 0 && inY) {
                   if (isBlocking) {
-                    opp.takeDamage(15 * 0.1);
+                    opp.takeDamage(15 * 0.1, p);
                     opp.guard -= 15 * 0.5;
                     if (engine.particleManager)
                       engine.particleManager.spawn(
@@ -2602,7 +2689,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                       opp.stunTimer = 60;
                     }
                   } else {
-                    opp.takeDamage(15);
+                    opp.takeDamage(15, p);
                     opp.stunTimer = Math.max(opp.stunTimer, 20);
                   }
                 }
@@ -2710,7 +2797,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
                 if (opp.invincibleTimer <= 0 && inY) {
                   if (isBlocking) {
-                    opp.takeDamage(15 * 0.1);
+                    opp.takeDamage(15 * 0.1, p);
                     opp.guard -= 15 * 0.5;
                     if (engine.particleManager)
                       engine.particleManager.spawn(
@@ -2726,7 +2813,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                       opp.stunTimer = 60;
                     }
                   } else {
-                    opp.takeDamage(15);
+                    opp.takeDamage(15, p);
                     opp.stunTimer = Math.max(opp.stunTimer, 20);
                   }
                 }
@@ -2830,7 +2917,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
                 if (opp.invincibleTimer <= 0 && inY) {
                   if (isBlocking) {
-                    opp.takeDamage(15 * 0.1);
+                    opp.takeDamage(15 * 0.1, p);
                     opp.guard -= 15 * 0.5;
                     if (engine.particleManager)
                       engine.particleManager.spawn(
@@ -2846,7 +2933,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                       opp.stunTimer = 60;
                     }
                   } else {
-                    opp.takeDamage(15);
+                    opp.takeDamage(15, p);
                     opp.stunTimer = Math.max(opp.stunTimer, 20);
                   }
                 }
@@ -2974,7 +3061,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
               const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
               if (opp.invincibleTimer <= 0 && inY) {
                 if (isBlocking) {
-                  opp.takeDamage(80 * 0.1);
+                  opp.takeDamage(80 * 0.1, p);
                   opp.guard -= 80 * 0.5;
                   if (engine.particleManager)
                     engine.particleManager.spawn(
@@ -2990,7 +3077,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                     opp.stunTimer = 60;
                   }
                 } else {
-                  opp.takeDamage(80);
+                  opp.takeDamage(80, p);
                   opp.stunTimer = Math.max(opp.stunTimer, 20);
                 }
               }
@@ -3152,7 +3239,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
             if (opp.invincibleTimer <= 0 && inY) {
               if (isBlocking) {
-                opp.takeDamage(25 * 0.1);
+                opp.takeDamage(25 * 0.1, p);
                 opp.guard -= 25 * 0.5;
                 if (engine.particleManager)
                   engine.particleManager.spawn("BLOCK", opp.pos.x, opp.pos.y - 50, 2, "#60a5fa");
@@ -3162,7 +3249,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                   opp.stunTimer = 60;
                 }
               } else {
-                opp.takeDamage(25);
+                opp.takeDamage(25, p);
                 opp.stunTimer = Math.max(opp.stunTimer, 20);
               }
             }
@@ -3245,7 +3332,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           if (p.ultTimer === 1) {
             const hit = Math.abs(p.x - opp.x) < 120 && Math.abs(p.y - opp.y) < 120;
             if (hit && opp.invincibleTimer <= 0) {
-              opp.takeDamage(60);
+              opp.takeDamage(CombatManager.getDamageByPercentage(opp, 'COMBINED_ULTIMATE', 15, 1, p), p);
               opp.state = PlayerState.HIT;
               opp.stunTimer = 60;
               engine.camera.addScreenShake(15, 10, "IMPULSE", 1);
@@ -3302,7 +3389,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           if (p.ultTimer === 1) {
             const hit = Math.abs(p.x - opp.x) < 120 && Math.abs(p.y - opp.y) < 120;
             if (hit && opp.invincibleTimer <= 0) {
-              opp.takeDamage(60);
+              opp.takeDamage(CombatManager.getDamageByPercentage(opp, 'COMBINED_ULTIMATE', 25, 1, p), p);
               opp.state = PlayerState.HIT;
               opp.stunTimer = 60;
               engine.camera.addScreenShake(15, 10, "IMPULSE", 1);
@@ -3329,7 +3416,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           if (p.ultTimer === 1) {
             const hit = Math.abs(p.x - opp.x) < 120 && Math.abs(p.y - opp.y) < 120;
             if (hit && opp.invincibleTimer <= 0) {
-              opp.takeDamage(60);
+              opp.takeDamage(CombatManager.getDamageByPercentage(opp, 'COMBINED_ULTIMATE', 20, 1, p), p);
               opp.state = PlayerState.HIT;
               opp.stunTimer = 60;
               engine.camera.addScreenShake(15, 10, "IMPULSE", 1);
@@ -3520,7 +3607,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
 
           if (p.ultTimer % 6 === 0) {
             if (opp.invincibleTimer <= 0) {
-              opp.takeDamage(20);
+              opp.takeDamage(20, p);
               opp.stunTimer = Math.max(opp.stunTimer, 20);
               opp.state = PlayerState.HIT;
             }
@@ -3560,7 +3647,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
 
           if (p.ultTimer === 1) {
             if (opp.invincibleTimer <= 0) {
-              opp.takeDamage(150); // Massive final damage
+              opp.takeDamage(150, p); // Massive final damage
               opp.state = PlayerState.HIT;
               opp.stunTimer = 100;
             }
@@ -3627,7 +3714,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
             if (opp.invincibleTimer <= 0 && inY) {
               if (isBlocking) {
-                opp.takeDamage(10 * 0.1);
+                opp.takeDamage(10 * 0.1, p);
                 opp.guard -= 10 * 0.5;
                 if (engine.particleManager)
                   engine.particleManager.spawn(
@@ -3643,7 +3730,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                   opp.stunTimer = 60;
                 }
               } else {
-                opp.takeDamage(10);
+                opp.takeDamage(10, p);
                 opp.stunTimer = Math.max(opp.stunTimer, 20);
               }
             }
@@ -3684,7 +3771,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
             if (opp.invincibleTimer <= 0 && inY) {
               if (isBlocking) {
-                opp.takeDamage(100 * 0.1);
+                opp.takeDamage(100 * 0.1, p);
                 opp.guard -= 100 * 0.5;
                 if (engine.particleManager)
                   engine.particleManager.spawn(
@@ -3700,7 +3787,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                   opp.stunTimer = 60;
                 }
               } else {
-                opp.takeDamage(100);
+                opp.takeDamage(100, p);
                 opp.stunTimer = Math.max(opp.stunTimer, 20);
               }
             }
@@ -3798,7 +3885,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
                 if (opp.invincibleTimer <= 0 && inY) {
                   if (isBlocking) {
-                    opp.takeDamage(10 * 0.1);
+                    opp.takeDamage(10 * 0.1, p);
                     opp.guard -= 10 * 0.5;
                     if (engine.particleManager) {
                       engine.particleManager.spawn(
@@ -3815,7 +3902,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                       opp.stunTimer = 60;
                     }
                   } else {
-                    opp.takeDamage(10);
+                    opp.takeDamage(10, p);
                     opp.stunTimer = Math.max(opp.stunTimer, 20);
                   }
                 }
@@ -3963,7 +4050,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
               opp.velocity.y = 0;
 
               const dano = 12;
-              opp.takeDamage(dano);
+              opp.takeDamage(dano, p);
 
               try {
                 engine.particleManager.spawnHitSpark(opp.x + opp.width / 2, opp.y + opp.height / 2, true);
@@ -4063,7 +4150,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 opp.velocity.y = 0;
                 
                 if (p.ultTimer % 5 === 0) {
-                  opp.takeDamage(4);
+                  opp.takeDamage(4, p);
                   try {
                     engine.particleManager.spawnHitSpark(opp.x + opp.width / 2, opp.y + opp.height / 2, false);
                   } catch (err) {}
@@ -4076,7 +4163,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
               if ((p as any).beamHasHitOpponent) {
                 if (opp.invincibleTimer <= 0) {
                   const finalDamage = 90;
-                  opp.takeDamage(finalDamage);
+                  opp.takeDamage(finalDamage, p);
                   opp.state = PlayerState.HIT;
                   opp.stunTimer = 60;
                   opp.velocity.x = p.facingRight ? 45 : -45;
@@ -4179,7 +4266,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             );
             
             if (collides || Math.abs(opp.pos.x - p.pos.x) < 140) {
-              opp.takeDamage(100);
+              opp.takeDamage(100, p);
               opp.state = PlayerState.STUNNED;
               opp.stunTimer = 100;
               if (engine.camera) engine.camera.addScreenShake(8, 3, "PERLIN", 0.3);
@@ -4256,7 +4343,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             );
             
             if (collides || Math.abs(opp.pos.x - p.pos.x) < 140) {
-              opp.takeDamage(100);
+              opp.takeDamage(100, p);
               opp.state = PlayerState.STUNNED;
               opp.stunTimer = 100;
               if (engine.camera) engine.camera.addScreenShake(8, 3, "PERLIN", 0.3);
@@ -4333,7 +4420,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             );
             
             if (collides || Math.abs(opp.pos.x - p.pos.x) < 140) {
-              opp.takeDamage(120);
+              opp.takeDamage(120, p);
               opp.state = PlayerState.STUNNED;
               opp.stunTimer = 100;
               if (engine.camera) engine.camera.addScreenShake(8, 3, "PERLIN", 0.3);
@@ -4486,7 +4573,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           opp.stunTimer = 10;
           
           if (p.ultTimer % 4 === 0) {
-            opp.takeDamage(12);
+            opp.takeDamage(12, p);
             if (engine.camera) engine.camera.addScreenShake(10, 4, "PERLIN", 0.3);
           }
 
@@ -4574,7 +4661,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             // Oponente recebe dano constante após tocar no hitbox
             opp.velocity.x = 0;
             opp.velocity.y = 0;
-            opp.takeDamage(1.6);
+            opp.takeDamage(1.6, p);
             opp.state = PlayerState.HIT;
             opp.stunTimer = 10;
 
@@ -4714,7 +4801,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
 
           // Deal continuous damage to opponent while the beam is active
           if (p.ultTimer % 4 === 0) {
-            opp.takeDamage(12);
+            opp.takeDamage(12, p);
             if (engine.camera) engine.camera.addScreenShake(6, 2, "PERLIN", 0.3);
             try {
               engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 40, false);
@@ -4742,7 +4829,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           opp.stunTimer = 100;
           
           if (p.ultTimer % 4 === 0) {
-            opp.takeDamage(12);
+            opp.takeDamage(12, p);
             if (engine.camera) engine.camera.addScreenShake(6, 2, "PERLIN", 0.3);
             try {
               engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 40, false);
@@ -4777,7 +4864,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           opp.stunTimer = 100;
           
           if (p.ultTimer % 4 === 0) {
-            opp.takeDamage(12);
+            opp.takeDamage(12, p);
             if (engine.camera) engine.camera.addScreenShake(6, 2, "PERLIN", 0.3);
             try {
               engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 40, false);
@@ -4932,7 +5019,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 AudioManager.getInstance().playSFX("shoot");
               } catch (err) {}
               
-              opp.takeDamage(18);
+              opp.takeDamage(18, p);
               if (engine.camera) engine.camera.addScreenShake(4, 2, "PERLIN", 0.15);
             }
           }
@@ -5034,7 +5121,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           opp.stunTimer = 100;
           
           if (p.ultTimer % 4 === 0) {
-            opp.takeDamage(12);
+            opp.takeDamage(12, p);
             if (engine.camera) engine.camera.addScreenShake(6, 2, "PERLIN", 0.3);
             try {
               engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 40, false);
@@ -5067,7 +5154,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
           opp.stunTimer = 100;
           
           if (p.ultTimer % 4 === 0) {
-            opp.takeDamage(12);
+            opp.takeDamage(12, p);
             if (engine.camera) engine.camera.addScreenShake(6, 2, "PERLIN", 0.3);
             try {
               engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 40, false);
@@ -5163,7 +5250,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                 AudioManager.getInstance().playSFX("shoot");
               } catch (err) {}
               
-              opp.takeDamage(18);
+              opp.takeDamage(18, p);
               if (engine.camera) engine.camera.addScreenShake(4, 2, "PERLIN", 0.15);
             }
           }
@@ -5283,7 +5370,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
               opp.state = PlayerState.STUNNED;
               opp.stunTimer = 30;
               if (p.ultTimer % 4 === 0 && opp.invincibleTimer <= 0) {
-                opp.takeDamage(6);
+                opp.takeDamage(6, p);
                 if (opp.hp < 0) opp.hp = 0;
                 if (engine.camera) engine.camera.addScreenShake(8, 4, "PERLIN", 0.15);
                 try {
@@ -5437,7 +5524,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             opp.stunTimer = 10;
 
             if (p.ultTimer === 1) {
-              opp.takeDamage(12);
+              opp.takeDamage(12, p);
               if (engine.camera) engine.camera.addScreenShake(12, 6, "IMPULSE", 0.5);
               try {
                 engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 50, true);
@@ -5497,7 +5584,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
               opp.stunTimer = 15;
               // Recebe dano constante repetidamente durante o contato
               if (p.ultTimer % 4 === 0) {
-                opp.takeDamage(3);
+                opp.takeDamage(3, p);
                 if (engine.camera) engine.camera.addScreenShake(5, 2, "PERLIN", 0.15);
                 try {
                   engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 50, false);
@@ -5518,7 +5605,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             p.velocity.y = 0;
 
             if (p.ultTimer === 1) {
-              opp.takeDamage(25);
+              opp.takeDamage(25, p);
               if (engine.camera) engine.camera.addScreenShake(20, 10, "IMPULSE", 0.6);
               try {
                 engine.particleManager.spawnHitSpark(opp.pos.x, opp.pos.y - 50, true);
@@ -5613,7 +5700,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             if (isColliding) {
               if (p.ultTimer % 4 === 0 && opp.invincibleTimer <= 0) {
                 const damage = 3.5;
-                opp.takeDamage(damage);
+                opp.takeDamage(damage, p);
                 opp.state = PlayerState.HIT;
                      opp.stunTimer = Math.max(opp.stunTimer, 20);
 
@@ -6004,18 +6091,22 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
 
         let dano = 0;
         let isEnergy = false;
-        if (p.ultPhase === 4) dano = 15;
-        if (p.ultPhase === 6) {
-          dano = 50;
+        const isCombined = p.ultType === 3 || (p as any).isCombinedUlt || animKey.includes("COMBINADO") || animKey.includes("ULTIMATE_3");
+        const hitFramesCount = (anim.damageFrames && anim.damageFrames.length > 0) ? anim.damageFrames.length : 1;
+        
+        if (p.ultPhase === 4 || p.ultPhase === 5) {
+          dano = CombatManager.getDamageByPercentage(opp, isCombined ? 'COMBINED_ULTIMATE' : 'ULTIMATE', 15, hitFramesCount);
+        } else if (p.ultPhase === 6) {
+          dano = CombatManager.getDamageByPercentage(opp, isCombined ? 'COMBINED_ULTIMATE' : 'ULTIMATE', 25, hitFramesCount);
           opp.isGrounded = false;
+        } else if (p.ultPhase === 8 || p.ultPhase === 11) {
+          dano = CombatManager.getDamageByPercentage(opp, isCombined ? 'COMBINED_ULTIMATE' : 'ULTIMATE', isCombined ? 20 : 25, hitFramesCount);
+          if (p.ultPhase === 8) isEnergy = true;
+        } else if (anim.baseDamage !== undefined) {
+          dano = (opp.maxHp * (anim.baseDamage / 100)) / hitFramesCount;
+        } else {
+          dano = CombatManager.getDamageByPercentage(opp, isCombined ? 'COMBINED_ULTIMATE' : 'ULTIMATE', isCombined ? 60 : 40, hitFramesCount);
         }
-        if (p.ultPhase === 8) {
-          dano = 30;
-          isEnergy = true;
-        }
-        if (p.ultPhase === 11) dano = 100;
-
-        if (anim.baseDamage !== undefined) dano = anim.baseDamage;
 
         if (dano > 0) {
           {
@@ -6031,7 +6122,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
             const inY = Math.abs(opp.pos.y - p.pos.y) < 600;
             if (opp.invincibleTimer <= 0 && inY) {
               if (isBlocking) {
-                opp.takeDamage(dano * 0.1);
+                opp.takeDamage(dano * 0.1, p);
                 opp.guard -= dano * 0.5;
                 if (engine.particleManager)
                   engine.particleManager.spawn(
@@ -6047,7 +6138,7 @@ const blockColor = isEgo ? "#4c1d95" : "#60a5fa";
                   opp.stunTimer = 60;
                 }
               } else {
-                opp.takeDamage(dano);
+                opp.takeDamage(dano, p);
                 opp.stunTimer = Math.max(opp.stunTimer, 20);
               }
             }

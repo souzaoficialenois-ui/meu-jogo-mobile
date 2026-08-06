@@ -4,6 +4,7 @@ export class MissionManager {
     
     // Static Templates
     private static DAILY_TEMPLATES = [
+        { id: 'd_room_token', actionType: 'BATTLE_PLAY' as MissionAction, description: 'Jogue 1 Batalha para obter Tokens de Sala', target: 1, rewardType: 'ROOM_TOKEN' as RewardType, rewardAmount: 2 },
         { id: 'd1', actionType: 'BATTLE_WIN' as MissionAction, description: 'Win 3 Matches', target: 3, rewardType: 'XP' as RewardType, rewardAmount: 500 },
         { id: 'd2', actionType: 'TRAINING_PLAY' as MissionAction, description: 'Play 1 Training Session', target: 1, rewardType: 'COIN' as RewardType, rewardAmount: 300 },
         { id: 'd3', actionType: 'BATTLE_PLAY' as MissionAction, description: 'Play 3 Battles', target: 3, rewardType: 'COIN' as RewardType, rewardAmount: 300 },
@@ -18,6 +19,12 @@ export class MissionManager {
         { id: 'w2', actionType: 'ULTIMATE_EXECUTE' as MissionAction, description: 'Execute 10 Ultimates', target: 10, rewardType: 'GEM' as RewardType, rewardAmount: 50 },
         { id: 'w3', actionType: 'SUMMON' as MissionAction, description: 'Summon 5 Times', target: 5, rewardType: 'GEM' as RewardType, rewardAmount: 50 },
         { id: 'w4', actionType: 'TAG_EXECUTE' as MissionAction, description: 'Perform 30 Tags', target: 30, rewardType: 'COIN' as RewardType, rewardAmount: 1000 },
+    ];
+
+    private static MONTHLY_TEMPLATES = [
+        { id: 'm_room_token', actionType: 'BATTLE_WIN' as MissionAction, description: 'Vença 5 Batalhas para obter Tokens de Sala Mensais', target: 5, rewardType: 'ROOM_TOKEN' as RewardType, rewardAmount: 5 },
+        { id: 'm1', actionType: 'DAMAGE_DEALT' as MissionAction, description: 'Cause 200.000 de Dano Total', target: 200000, rewardType: 'GEM' as RewardType, rewardAmount: 300 },
+        { id: 'm2', actionType: 'BATTLE_WIN' as MissionAction, description: 'Vença 25 Batalhas', target: 25, rewardType: 'TICKET' as RewardType, rewardAmount: 10 },
     ];
 
     public static generateDailies(): Mission[] {
@@ -48,6 +55,23 @@ export class MissionManager {
             current: 0,
             claimed: false,
             expiresAt: nextWeek.getTime()
+        }));
+    }
+
+    public static generateMonthlies(): Mission[] {
+        const now = Date.now();
+        const nextMonth = new Date();
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        nextMonth.setDate(1);
+        nextMonth.setHours(0, 0, 0, 0);
+
+        return this.MONTHLY_TEMPLATES.map(t => ({
+            ...t,
+            id: `monthly_${t.id}_${now}`,
+            type: 'MONTHLY' as MissionType,
+            current: 0,
+            claimed: false,
+            expiresAt: nextMonth.getTime()
         }));
     }
 

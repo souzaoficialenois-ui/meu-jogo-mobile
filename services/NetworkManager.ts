@@ -4,7 +4,9 @@ export class NetworkManager {
     private static instance: NetworkManager;
     public peer: Peer | null = null;
     public connection: DataConnection | null = null;
+    public extraConnections: DataConnection[] = [];
     public isHost: boolean = false;
+    public isSpectator: boolean = false;
     public id: string = "";
     
     public onConnect: (isHost: boolean, opponentId: string, profile?: any) => void = () => {};
@@ -14,6 +16,7 @@ export class NetworkManager {
     public onDisconnect: () => void = () => {};
     public onReconnectSync: (state: any) => void = () => {};
     public onRealtimeStateSync: (state: any) => void = () => {};
+    public onEmoteReceived: (data: any) => void = () => {};
 
     private constructor() {
         if (typeof window !== 'undefined') {
@@ -81,8 +84,12 @@ export class NetworkManager {
 
         peer.on('connection', (conn) => {
             console.log(`[Network] Incoming connection from ${conn.peer}`);
-            this.connection = conn;
-            this.setupConnection();
+            if (!this.connection) {
+                this.connection = conn;
+            } else if (this.connection.peer !== conn.peer && !this.extraConnections.some(c => c.peer === conn.peer)) {
+                this.extraConnections.push(conn);
+            }
+            this.setupConnectionFor(conn);
         });
     }
 
@@ -192,14 +199,22 @@ export class NetworkManager {
     }
 
     private setupConnection() {
-        if (!this.connection) return;
+        if (this.connection) {
+            this.setupConnectionFor(this.connection);
+        }
+    }
+
+    private setupConnectionFor(conn: DataConnection) {
+        if (!conn) return;
         
-        this.connection.on('open', () => {
-            console.log(`[Network] Connection established with ${this.connection?.peer}`);
-            this.onConnect(this.isHost, this.connection!.peer);
+        conn.on('open', () => {
+            console.log(`[Network] Connection established with ${conn.peer}`);
+            if (conn === this.connection) {
+                this.onConnect(this.isHost, conn.peer);
+            }
         });
 
-        this.connection.on('data', (data: any) => {
+        conn.on('data', (data: any) => {
             if (data?.type === 'INPUT') {
                 this.onInputReceived(data.input);
             } else if (data?.type === 'P2P_READY') {
@@ -210,20 +225,41 @@ export class NetworkManager {
                  this.onReconnectSync(data.state);
             } else if (data?.type === 'REALTIME_STATE_SYNC') {
                  this.onRealtimeStateSync(data.state);
+            } else if (data?.type === 'EMOTE') {
+                 this.onEmoteReceived(data.data || data.emote || data);
             }
         });
         
-        this.connection.on('close', () => {
-             console.log("[Network] Connection closed");
-             this.onDisconnect();
-             this.closeConnection();
+        conn.on('close', () => {
+             console.log(`[Network] Connection closed for ${conn.peer}`);
+             if (conn === this.connection) {
+                 this.onDisconnect();
+                 this.closeConnection();
+             } else {
+                 this.extraConnections = this.extraConnections.filter(c => c !== conn);
+             }
         });
 
-        this.connection.on('error', (err) => {
+        conn.on('error', (err) => {
             console.error("[Network] Connection error:", err);
-            this.onDisconnect();
-            this.closeConnection();
+            if (conn === this.connection) {
+                this.onDisconnect();
+                this.closeConnection();
+            } else {
+                this.extraConnections = this.extraConnections.filter(c => c !== conn);
+            }
         });
+    }
+
+    public broadcast(data: any) {
+        if (this.connection && this.connection.open) {
+            try { this.connection.send(data); } catch (e) {}
+        }
+        for (const conn of this.extraConnections) {
+            if (conn && conn.open) {
+                try { conn.send(data); } catch (e) {}
+            }
+        }
     }
 
     public sendInput(input: any) {
@@ -239,15 +275,15 @@ export class NetworkManager {
     }
 
     public sendGameStart(char: any) {
-        if (this.connection && this.connection.open) {
-            this.connection.send({ type: 'GAME_START', char });
-        }
+        this.broadcast({ type: 'GAME_START', char });
     }
 
     public sendReconnectSync(state: any) {
-        if (this.connection && this.connection.open) {
-            this.connection.send({ type: 'RECONNECT_SYNC', state });
-        }
+        this.broadcast({ type: 'RECONNECT_SYNC', state });
+    }
+
+    public sendEmote(data: any) {
+        this.broadcast({ type: 'EMOTE', data });
     }
 
     public closeConnection() {
@@ -257,25 +293,28 @@ export class NetworkManager {
             } catch (e) {}
             this.connection = null;
         }
+        for (const conn of this.extraConnections) {
+            try { conn.close(); } catch (e) {}
+        }
+        this.extraConnections = [];
     }
 
     public reset() {
-        if (this.connection) {
-            this.connection.close();
-            this.connection = null;
-        }
+        this.closeConnection();
         if (this.peer) {
             this.peer.destroy();
             this.peer = null;
         }
         this.id = "";
         this.isHost = false;
+        this.isSpectator = false;
         this.onConnect = () => {};
         this.onGameStart = () => {};
         this.onInputReceived = () => {};
         this.onDisconnect = () => {};
         this.onReconnectSync = () => {};
         this.onRealtimeStateSync = () => {};
+        this.onEmoteReceived = () => {};
     }
 
     // --- Online Status Logic ---

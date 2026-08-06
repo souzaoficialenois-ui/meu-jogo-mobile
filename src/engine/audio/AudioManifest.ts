@@ -51,73 +51,103 @@ export const AUDIO_MANIFEST: Record<string, SoundDefinition> = {
     punch: {
         key: 'punch',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/HIT.ogg',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/LEVE_1.wav',
+        defaultPriority: AudioPriority.MEDIUM
+    },
+    hit: {
+        key: 'hit',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/LEVE_1.wav',
+        defaultPriority: AudioPriority.MEDIUM
+    },
+    hit_light: {
+        key: 'hit_light',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/LEVE_1.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     combo_leve_1: {
         key: 'combo_leve_1',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/COMBATE/LEVE%201.wav',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/LEVE_1.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     combo_leve_2: {
         key: 'combo_leve_2',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/COMBATE/LEVE%202.wav',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/LEVE%20_2.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     combo_leve_3: {
         key: 'combo_leve_3',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/COMBATE/LEVE%203.wav',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/LEVE_3.wav',
+        defaultPriority: AudioPriority.MEDIUM
+    },
+    hit_medium: {
+        key: 'hit_medium',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/MEDIO_1.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     combo_medio_1: {
         key: 'combo_medio_1',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/COMBATE/MEDIO%201.wav',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/MEDIO_1.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     combo_medio_2: {
         key: 'combo_medio_2',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/COMBATE/MEDIO%202.wav',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/MEDIO_2.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     combo_medio_3: {
         key: 'combo_medio_3',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/COMBATE/MEDIO%203.wav',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/MEDIO_3.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     combo_forte: {
         key: 'combo_forte',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/COMBATE/FORTE.wav',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/FORTE.wav',
+        defaultPriority: AudioPriority.MEDIUM
+    },
+    heavy_hit: {
+        key: 'heavy_hit',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/FORTE.wav',
+        defaultPriority: AudioPriority.MEDIUM
+    },
+    hit_heavy: {
+        key: 'hit_heavy',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/FORTE.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     attack: {
         key: 'attack',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/HIT.ogg',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/LEVE_1.wav',
         defaultPriority: AudioPriority.MEDIUM
     },
     block: {
         key: 'block',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/BLOCK.ogg',
+        fallbackUrl: '/Assets/Sons/EFEITOS/DEFESA/ROMPIDA.m4a',
         defaultPriority: AudioPriority.MEDIUM
     },
     charge: {
         key: 'charge',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/KI_CHARGE.ogg',
+        fallbackUrl: '/Assets/Sons/EFEITOS/CARREGANDO%20KI/Inicio.m4a',
         defaultPriority: AudioPriority.LOW
     },
     dash: {
         key: 'dash',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/DASH.ogg',
+        fallbackUrl: '/Assets/Sons/EFEITOS/TELEPORTE/TELEPORTE.m4a',
         defaultPriority: AudioPriority.MEDIUM
     },
     ready: {
@@ -135,13 +165,13 @@ export const AUDIO_MANIFEST: Record<string, SoundDefinition> = {
     ko: {
         key: 'ko',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/NARRADOR/KO.ogg',
+        fallbackUrl: '/Assets/Sons/ENTRADA%20KO/ENTRADA%20KO.m4a',
         defaultPriority: AudioPriority.HIGH
     },
     summon: {
         key: 'summon',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/HIT.ogg',
+        fallbackUrl: '/Assets/Sons/EFEITOS/COMBATE/FORTE.wav',
         defaultPriority: AudioPriority.HIGH
     },
     victory: {
@@ -217,55 +247,103 @@ export const AUDIO_MANIFEST: Record<string, SoundDefinition> = {
     ki_charge_start: {
         key: 'ki_charge_start',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/CARREGANDO%20KI/INICIO.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/CARREGANDO%20KI/Inicio.m4a',
         defaultPriority: AudioPriority.LOW
     },
     ki_charge_loop: {
         key: 'ki_charge_loop',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/CARREGANDO%20KI/LOOP.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/CARREGANDO%20KI/Loop.m4a',
         defaultPriority: AudioPriority.LOW
     },
     jump: {
         key: 'jump',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/PULO/PULO.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/PULO/Pulo.m4a',
+        defaultPriority: AudioPriority.MEDIUM
+    },
+    pulo: {
+        key: 'pulo',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/PULO/Pulo.m4a',
         defaultPriority: AudioPriority.MEDIUM
     },
     land: {
         key: 'land',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/PULO/CAIU%20NO%20CHAO.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/PULO/Aterrisagen.m4a',
+        defaultPriority: AudioPriority.MEDIUM
+    },
+    aterrisagem: {
+        key: 'aterrisagem',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/PULO/Aterrisagen.m4a',
         defaultPriority: AudioPriority.MEDIUM
     },
     dragon_rush_inicio: {
         key: 'dragon_rush_inicio',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/DRAGON%20RUSH/INICIO.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/DRAGON%20RUSH/INICIO.m4a',
         defaultPriority: AudioPriority.HIGH
     },
     dragon_rush_combo: {
         key: 'dragon_rush_combo',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/DRAGON%20RUSH/COMBO.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/DRAGON%20RUSH/COMBO.m4a',
+        defaultPriority: AudioPriority.HIGH
+    },
+    dragon_rush_impact: {
+        key: 'dragon_rush_impact',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/DRAGON%20RUSH/COMBO.m4a',
         defaultPriority: AudioPriority.HIGH
     },
     dragon_rush_final: {
         key: 'dragon_rush_final',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/DRAGON%20RUSH/FINAL.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/DRAGON%20RUSH/FINAL.m4a',
         defaultPriority: AudioPriority.HIGH
     },
     teleport: {
         key: 'teleport',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/TELEPORTE/TELEPORTE.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/TELEPORTE/TELEPORTE.m4a',
+        defaultPriority: AudioPriority.HIGH
+    },
+    vanish: {
+        key: 'vanish',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/TELEPORTE/TELEPORTE.m4a',
+        defaultPriority: AudioPriority.HIGH
+    },
+    teleporte: {
+        key: 'teleporte',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/TELEPORTE/TELEPORTE.m4a',
         defaultPriority: AudioPriority.HIGH
     },
     guard_break: {
         key: 'guard_break',
         category: SoundCategory.SFX,
-        fallbackUrl: '/Assets/SONS/EFEITOS/DEFESA/ROMPIDA.m4a',
+        fallbackUrl: '/Assets/Sons/EFEITOS/DEFESA/ROMPIDA.m4a',
+        defaultPriority: AudioPriority.HIGH
+    },
+    rompida: {
+        key: 'rompida',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/EFEITOS/DEFESA/ROMPIDA.m4a',
+        defaultPriority: AudioPriority.HIGH
+    },
+    entrada_ko: {
+        key: 'entrada_ko',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/ENTRADA%20KO/ENTRADA%20KO.m4a',
+        defaultPriority: AudioPriority.HIGH
+    },
+    ko_entry: {
+        key: 'ko_entry',
+        category: SoundCategory.SFX,
+        fallbackUrl: '/Assets/Sons/ENTRADA%20KO/ENTRADA%20KO.m4a',
         defaultPriority: AudioPriority.HIGH
     },
     goku_base_kamehameha_inicio: {

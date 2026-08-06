@@ -46,7 +46,7 @@ export class VoiceAudioManager {
         return AudioSettings.getInstance().isMuted(SoundCategory.VOICE);
     }
 
-    public async playVoice(voiceKey: string) {
+    public async playVoice(voiceKey: string, worldX?: number, getPositionX?: () => number) {
         if (!AudioManager.isInBattle) {
             const lower = (voiceKey || "").toLowerCase();
             const isWhiteListed = lower.includes('intro') || 
@@ -58,7 +58,7 @@ export class VoiceAudioManager {
                 return;
             }
         }
-        await NewVoiceManager.getInstance().playVoice(voiceKey);
+        await NewVoiceManager.getInstance().playVoice(voiceKey, worldX, getPositionX);
     }
 
     public stopAllVoices() {

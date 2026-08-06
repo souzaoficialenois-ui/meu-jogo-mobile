@@ -263,9 +263,9 @@ export const ProfileCreationScreen: React.FC = () => {
                             {t('profile_avatar_label') || "VISUAL DO GUERREIRO"}
                         </label>
                         <div className="grid grid-cols-5 sm:grid-cols-7 lg:grid-cols-9 gap-3 max-h-48 overflow-y-auto custom-scrollbar p-1">
-                            {AVATAR_LIST.map((avatar) => (
+                            {AVATAR_LIST.map((avatar, idx) => (
                                 <button
-                                    key={avatar.id}
+                                    key={`creation-avatar-${avatar.id}-${idx}`}
                                     type="button"
                                     onClick={() => { setSelectedAvatar(avatar.id); AudioManager.getInstance().playSFX('click'); }}
                                     className={`
@@ -294,9 +294,9 @@ export const ProfileCreationScreen: React.FC = () => {
                         </label>
                         <div className="w-full overflow-x-auto pb-2 custom-scrollbar">
                             <div className="flex gap-3 w-max px-1">
-                                {BACKGROUND_LIST.map((bg) => (
+                                {BACKGROUND_LIST.map((bg, idx) => (
                                     <button
-                                        key={bg.id}
+                                        key={`creation-bg-${bg.id}-${idx}`}
                                         type="button"
                                         onClick={() => { setSelectedBackground(bg.id); AudioManager.getInstance().playSFX('click'); }}
                                         className={`

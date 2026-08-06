@@ -27,7 +27,9 @@ import {
     Check,
     Award,
     Box,
-    CheckCheck
+    CheckCheck,
+    X,
+    LayoutGrid
 } from 'lucide-react';
 
 type TabType = MissionType | 'OVERVIEW';
@@ -71,6 +73,7 @@ export const MissionScreen: React.FC = () => {
     const [filterStatus, setFilterStatus] = useState<FilterStatus>('ALL');
     const [claimedMilestones, setClaimedMilestones] = useState<number[]>([]);
     const [rewardToast, setRewardToast] = useState<string | null>(null);
+    const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
 
     const isPt = gameSettings.language === 'pt' || gameSettings.language === 'pt-BR';
 
@@ -206,6 +209,7 @@ export const MissionScreen: React.FC = () => {
 
         let rewardSprite = '';
         if (mission.rewardType === 'COIN') rewardSprite = RESOURCE_SPRITES.COIN;
+        else if (mission.rewardType === 'ROOM_TOKEN') rewardSprite = RESOURCE_SPRITES.ROOM_TOKEN;
         else if (mission.rewardType === 'GEM') rewardSprite = RESOURCE_SPRITES.GEM;
         else if (mission.rewardType === 'TICKET') rewardSprite = RESOURCE_SPRITES[mission.rewardData || ''] || RESOURCE_SPRITES.TICKET;
         else if (mission.rewardType === 'CRYSTAL' && mission.rewardData) rewardSprite = RESOURCE_SPRITES[mission.rewardData];
@@ -222,7 +226,7 @@ export const MissionScreen: React.FC = () => {
 
         return (
             <motion.div
-                key={mission.id}
+                key={`mission-${mission.id}-${idx}`}
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.04 }}
@@ -365,7 +369,7 @@ export const MissionScreen: React.FC = () => {
                 </div>
                 
                 {/* Economy Display */}
-                <div className="flex items-center gap-3 md:gap-6">
+                <div className="flex items-center gap-3 md:gap-4">
                     <div className="flex items-center gap-1.5 bg-black/50 border border-white/10 px-3 py-1.5 rounded-xl">
                         <img src={RESOURCE_SPRITES.COIN} alt="Coins" className="w-5 h-5 object-contain" />
                         <span className="text-xs md:text-sm font-black text-amber-400">{coins.toLocaleString()}</span>
@@ -380,46 +384,6 @@ export const MissionScreen: React.FC = () => {
             {/* MAIN CONTENT */}
             <main className="flex-1 w-full flex flex-col md:flex-row overflow-hidden relative z-10 p-3 md:p-6 gap-4 md:gap-6">
                 
-                {/* SIDEBAR TABS */}
-                <motion.div className="flex md:flex-col gap-2 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0 scrollbar-none snap-x w-full md:w-64 shrink-0">
-                    {tabs.map((tab) => {
-                        const unclaimed = tab.id === 'OVERVIEW' 
-                            ? totalUnclaimedOverview 
-                            : getUnclaimedCount(tab.id as MissionType);
-                        const isActive = activeTab === tab.id;
-
-                        return (
-                            <button
-                                key={tab.id}
-                                onClick={() => { 
-                                    setActiveTab(tab.id); 
-                                    setSelectedEventId(null);
-                                    AudioManager.getInstance().playSFX('click'); 
-                                }}
-                                className={`
-                                    relative flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all min-w-[150px] md:w-full shrink-0 group cursor-pointer border
-                                    ${isActive 
-                                        ? 'bg-gradient-to-r from-orange-600/30 to-amber-600/10 border-orange-500/50 text-white font-black italic shadow-lg shadow-orange-950/30' 
-                                        : 'bg-stone-900/40 border-white/5 text-stone-400 hover:text-stone-200 hover:bg-white/5 hover:border-white/10'}
-                                `}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <tab.icon className={`w-4 h-4 md:w-5 md:h-5 ${isActive ? 'text-orange-400' : 'text-stone-500 group-hover:text-stone-300'}`} />
-                                    <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] select-none truncate font-black">{tab.label}</span>
-                                </div>
-
-                                {unclaimed > 0 && (
-                                    <span className="w-5 h-5 rounded-full bg-orange-600 text-white text-[9px] font-black flex items-center justify-center animate-pulse shadow-md border border-orange-400 shrink-0">
-                                        {unclaimed}
-                                    </span>
-                                )}
-
-                                {isActive && <div className="absolute left-[-2px] top-1/2 -translate-y-1/2 w-1.5 h-6 rounded-r-full bg-orange-500 hidden md:block" />}
-                            </button>
-                        );
-                    })}
-                </motion.div>
-
                 {/* VIEWPORT */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-5">
                     
@@ -484,14 +448,14 @@ export const MissionScreen: React.FC = () => {
                                     {isPt ? 'BAÚS DE BÔNUS DE META DIÁRIA' : 'DAILY MILESTONE BONUS CHESTS'}
                                 </h4>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    {DAILY_MILESTONES.map((ms) => {
+                                    {DAILY_MILESTONES.map((ms, idx) => {
                                         const isClaimed = claimedMilestones.includes(ms.id);
                                         const isUnlocked = completedDailiesCount >= ms.target;
                                         const canClaim = isUnlocked && !isClaimed;
 
                                         return (
                                             <div 
-                                                key={ms.id}
+                                                key={`milestone-${ms.id}-${idx}`}
                                                 className={`
                                                     relative p-3 rounded-2xl border transition-all flex items-center justify-between gap-3
                                                     ${isClaimed 
@@ -545,9 +509,9 @@ export const MissionScreen: React.FC = () => {
                                     { id: 'IN_PROGRESS', label: isPt ? 'EM CURSO' : 'IN PROGRESS' },
                                     { id: 'READY', label: isPt ? 'PRONTAS' : 'READY' },
                                     { id: 'CLAIMED', label: isPt ? 'COLETADAS' : 'CLAIMED' },
-                                ] as { id: FilterStatus; label: string }[]).map((f) => (
+                                ] as { id: FilterStatus; label: string }[]).map((f, idx) => (
                                     <button
-                                        key={f.id}
+                                        key={`filter-status-${f.id}-${idx}`}
                                         onClick={() => setFilterStatus(f.id)}
                                         className={`
                                             px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border cursor-pointer shrink-0
@@ -591,9 +555,9 @@ export const MissionScreen: React.FC = () => {
                                     </div>
 
                                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                                        {activeEvents.map((event) => (
+                                        {activeEvents.map((event, idx) => (
                                             <motion.div 
-                                                key={event.id}
+                                                key={`event-${event.id}-${idx}`}
                                                 whileHover={{ scale: 1.01 }}
                                                 onClick={() => { setSelectedEventId(event.id); AudioManager.getInstance().playSFX('click'); }}
                                                 className={`relative h-48 md:h-56 rounded-3xl overflow-hidden cursor-pointer border border-white/10 group bg-stone-900 shadow-xl`}
@@ -674,6 +638,124 @@ export const MissionScreen: React.FC = () => {
                     </AnimatePresence>
                 </div>
             </main>
+
+            {/* FLOATING SIDE MENU TOGGLE BUTTON (BOTTOM LEFT) */}
+            <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                    AudioManager.getInstance().playSFX('click');
+                    setIsSidebarOpen(prev => !prev);
+                }}
+                className={`
+                    fixed bottom-6 left-6 z-50 flex items-center gap-3 px-5 md:px-6 py-2.5 md:py-3 rounded-2xl border-2 backdrop-blur-2xl shadow-2xl transition-all cursor-pointer group
+                    ${isSidebarOpen 
+                        ? 'bg-red-600 border-red-400 text-white shadow-red-600/30' 
+                        : 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 border-orange-300/60 text-white shadow-orange-600/40 hover:brightness-110'
+                    }
+                `}
+            >
+                <div className={`p-1 rounded-lg transition-transform ${isSidebarOpen ? 'rotate-90 bg-red-700' : 'bg-orange-700/50 group-hover:rotate-12'}`}>
+                    {isSidebarOpen ? <X size={20} /> : <LayoutGrid size={22} />}
+                </div>
+                <span className="font-black italic uppercase tracking-[0.2em] text-xs md:text-sm drop-shadow-md">
+                    {isSidebarOpen ? 'FECHAR MENU' : 'MENU EVENTOS'}
+                </span>
+            </motion.button>
+
+            {/* BACKDROP & SIDEBAR DRAWER OVERLAY */}
+            <AnimatePresence>
+                {isSidebarOpen && (
+                    <>
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => {
+                                AudioManager.getInstance().playSFX('cancel');
+                                setIsSidebarOpen(false);
+                            }}
+                            className="fixed inset-0 z-40 bg-stone-950/80 backdrop-blur-xs cursor-pointer"
+                        />
+                        <motion.div
+                            initial={{ x: '-100%', opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            exit={{ x: '-100%', opacity: 0 }}
+                            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                            className="fixed inset-y-0 left-0 z-50 bg-stone-950/95 border-r border-white/10 backdrop-blur-2xl flex flex-col shadow-[20px_0_60px_rgba(0,0,0,0.9)] w-[88vw] sm:w-[360px] md:w-[420px] p-5 pt-8"
+                        >
+                            {/* Header of Event Lateral Drawer */}
+                            <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10 shrink-0">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 rounded-xl bg-orange-500/20 border border-orange-500/40 text-orange-400">
+                                        <LayoutGrid size={22} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black italic uppercase tracking-[0.15em] text-white text-base md:text-lg">
+                                            {isPt ? 'MENU DE EVENTOS' : 'EVENT MENU'}
+                                        </h3>
+                                        <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
+                                            {isPt ? 'CATEGORIAS DE EVENTOS & MISSÕES' : 'CATEGORIES & MISSIONS'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        AudioManager.getInstance().playSFX('cancel');
+                                        setIsSidebarOpen(false);
+                                    }}
+                                    className="p-2.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-stone-400 hover:text-white transition-all cursor-pointer"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            {/* Tabs & Categories Scrollable List */}
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-1 flex flex-col gap-2.5">
+                                {tabs.map((tab) => {
+                                    const unclaimed = tab.id === 'OVERVIEW' 
+                                        ? totalUnclaimedOverview 
+                                        : getUnclaimedCount(tab.id as MissionType);
+                                    const isActive = activeTab === tab.id && selectedEventId === null;
+
+                                    return (
+                                        <motion.button
+                                            key={tab.id}
+                                            whileHover={{ scale: 1.02, x: 4 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={() => {
+                                                setActiveTab(tab.id);
+                                                setSelectedEventId(null);
+                                                setIsSidebarOpen(false);
+                                                AudioManager.getInstance().playSFX('click');
+                                            }}
+                                            className={`
+                                                relative flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group text-left overflow-hidden
+                                                ${isActive 
+                                                    ? 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 border-orange-300 text-white font-black italic shadow-lg shadow-orange-950/40' 
+                                                    : 'bg-stone-900/70 border-white/5 text-stone-300 hover:bg-stone-800/80 hover:border-orange-500/40 hover:text-white'}
+                                            `}
+                                        >
+                                            <div className="flex items-center gap-3.5 relative z-10">
+                                                <div className={`p-2 rounded-xl ${isActive ? 'bg-black/30 text-white' : 'bg-stone-950 text-orange-400 group-hover:text-white'}`}>
+                                                    <tab.icon className="w-5 h-5" />
+                                                </div>
+                                                <span className="text-xs md:text-sm uppercase tracking-[0.15em] font-black truncate">{tab.label}</span>
+                                            </div>
+
+                                            {unclaimed > 0 && (
+                                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center justify-center animate-pulse shadow-md border relative z-10 ${isActive ? 'bg-black text-amber-400 border-amber-400/50' : 'bg-orange-600 text-white border-orange-400'}`}>
+                                                    {unclaimed} {isPt ? 'PRONTAS' : 'READY'}
+                                                </span>
+                                            )}
+                                        </motion.button>
+                                    );
+                                })}
+                            </div>
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
 
             <style>{`
                 .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }

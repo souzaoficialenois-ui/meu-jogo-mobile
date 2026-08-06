@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import confetti from 'canvas-confetti';
 import { useSceneManager } from '../../contexts/SceneContext';
 import { SceneName, CharacterData, RarityTier } from '../../types';
 import { RARITY_INFO, BANNERS, BASE_CHARACTERS, RESOURCE_SPRITES } from '../../constants';
@@ -59,7 +60,7 @@ export const SummonScreen: React.FC = () => {
     const [redeemSearchQuery, setRedeemSearchQuery] = useState('');
     const [redeemCategory, setRedeemCategory] = useState<GachaItem['category'] | 'PERSONAGEM' | 'ALL'>('ALL');
     const [selectedRedeemItemId, setSelectedRedeemItemId] = useState<string | null>(null);
-    const [isBannerMenuOpen, setIsBannerMenuOpen] = useState(true);
+    const [isBannerMenuOpen, setIsBannerMenuOpen] = useState(false);
     const [confirmingSummon, setConfirmingSummon] = useState(false);
     const [skipConfirmations, setSkipConfirmations] = useState<Record<string, boolean>>({});
 
@@ -326,6 +327,11 @@ export const SummonScreen: React.FC = () => {
             if (coinsToGain > 0) {
                 setPendingCoins(prev => prev + coinsToGain);
             }
+
+            const rarity = res.type === 'CHARACTER' ? res.character?.rarity : res.item?.rarity;
+            if (rarity === 'ETERNAL' || rarity === 'LEGENDARY') {
+                confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+            }
         }
 
         setFlippedCards(prev => ({ ...prev, [index]: true }));
@@ -336,6 +342,7 @@ export const SummonScreen: React.FC = () => {
         setIsAutoRevealing(false); // Stop auto-revelation if manual reveal all is clicked
         const next: Record<number, boolean> = {};
         let coinsToGain = 0;
+        let hasHighRarity = false;
         
         pullResults.forEach((res, i) => {
             next[i] = true;
@@ -346,10 +353,17 @@ export const SummonScreen: React.FC = () => {
                     coinsToGain += getRepeatedCoinsAmount(res);
                 }
             }
+            const rarity = res.type === 'CHARACTER' ? res.character?.rarity : res.item?.rarity;
+            if (rarity === 'ETERNAL' || rarity === 'LEGENDARY') {
+                hasHighRarity = true;
+            }
         });
         
         if (coinsToGain > 0) {
             setPendingCoins(prev => prev + coinsToGain);
+        }
+        if (hasHighRarity) {
+            confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
         }
         setFlippedCards(next);
         AudioManager.getInstance().playSFX('reveal');
@@ -438,92 +452,6 @@ export const SummonScreen: React.FC = () => {
                 {phase === 'SELECT' && (
                     <div className="absolute inset-x-0 top-16 md:top-20 bottom-0 z-10 flex overflow-hidden">
                         
-                        {/* SIDE BANNER SELECTOR (SLIDE MENU) */}
-                        <AnimatePresence>
-                            {isBannerMenuOpen && (
-                                <>
-                                    {/* Transparent backdrop to catch clicks outside the menu */}
-                                    <motion.div 
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0 }}
-                                        onClick={() => setIsBannerMenuOpen(false)}
-                                        className="absolute inset-0 z-30 bg-black/40 backdrop-blur-[2px]"
-                                    />
-                                    
-                                    <motion.div
-                                        initial={{ x: '-100%', opacity: 0 }}
-                                        animate={{ x: 0, opacity: 1 }}
-                                        exit={{ x: '-100%', opacity: 0 }}
-                                        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                                        className="absolute inset-y-0 left-0 z-40 bg-stone-950/90 backdrop-blur-3xl border-r border-stone-800 flex flex-col shadow-[20px_0_50px_rgba(0,0,0,0.8)]"
-                                        style={{ width: s(240) }}
-                                    >
-                                        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col gap-2.5 pt-6">
-                                            {BANNERS.map((banner, i) => {
-                                                const isSelected = activeBannerIdx === i;
-                                                const isItemBanner = banner.id === 'rare_items';
-                                                const IconComponent = isItemBanner ? Backpack : (banner.id === 'eternal_characters' ? Sparkles : Star);
-                                                
-                                                return (
-                                                    <motion.button
-                                                        key={banner.id}
-                                                        whileHover={{ x: 5, backgroundColor: isSelected ? undefined : 'rgba(255,255,255,0.03)' }}
-                                                        whileTap={{ scale: 0.97 }}
-                                                        onClick={() => {
-                                                            setActiveBannerIdx(i);
-                                                            AudioManager.getInstance().playSFX('click');
-                                                        }}
-                                                        className={`
-                                                            relative flex items-center gap-3 p-3 rounded-xl border transition-all group overflow-hidden
-                                                            ${isSelected ? 'border-orange-600 bg-orange-600/10 shadow-[0_0_20px_rgba(234,88,12,0.15)]' : 'border-stone-800/40 opacity-70 hover:opacity-100 hover:border-stone-700'}
-                                                        `}
-                                                    >
-                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 border ${isSelected ? 'bg-orange-600 border-orange-400 text-white' : 'bg-stone-900 border-stone-800 text-stone-500'}`}>
-                                                            <IconComponent className="w-5 h-5" />
-                                                        </div>
-                                                        <div className="flex flex-col items-start overflow-hidden">
-                                                            <span className={`text-[10px] font-black italic uppercase tracking-wider truncate w-full ${isSelected ? 'text-white' : 'text-stone-400'}`}>
-                                                                {banner.title}
-                                                            </span>
-                                                            <span className="text-[8px] text-stone-600 font-bold uppercase tracking-widest">{banner.type}</span>
-                                                        </div>
-                                                        
-                                                        {isSelected && (
-                                                            <motion.div 
-                                                                layoutId="active-nav-indicator"
-                                                                className="absolute right-3 w-1 h-4 bg-orange-500 rounded-full shadow-[0_0_8px_rgba(234,88,12,0.8)]" 
-                                                            />
-                                                        )}
-                                                    </motion.button>
-                                                );
-                                            })}
-                                        </div>
-                                    </motion.div>
-                                </>
-                            )}
-                        </AnimatePresence>
-
-                        {/* SIDE HANDLE TRIGGER (BANNER MENU) */}
-                        {!isBannerMenuOpen && (
-                            <motion.button
-                                initial={{ x: -20, opacity: 0 }}
-                                animate={{ x: 0, opacity: 1 }}
-                                whileHover={{ x: 5, backgroundColor: 'rgba(234, 88, 12, 1)' }}
-                                onClick={() => setIsBannerMenuOpen(true)}
-                                className="absolute left-0 top-1/2 -translate-y-1/2 z-[45] bg-stone-900/90 hover:bg-orange-600 text-white rounded-r-2xl border-y border-r border-white/10 shadow-2xl flex flex-col items-center justify-center cursor-pointer group backdrop-blur-md"
-                                style={{ width: s(36), height: s(120), gap: s(8) }}
-                            >
-                                <div className="flex flex-col items-center gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                                    <div className="w-1 h-1 rounded-full bg-white" />
-                                    <div className="w-1 h-1 rounded-full bg-white" />
-                                    <div className="w-1 h-1 rounded-full bg-white" />
-                                </div>
-                                <ChevronRight style={{ width: s(20), height: s(20) }} className="group-hover:scale-110 transition-transform" />
-                            </motion.button>
-                        )}
-
-
                         {/* REDEMPTION ANIMATION OVERLAY */}
                         <AnimatePresence>
                             {confirmingSummon && (
@@ -670,7 +598,7 @@ export const SummonScreen: React.FC = () => {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className={`flex-1 relative flex flex-col transition-all duration-500 ${isBannerMenuOpen ? 'ml-[260px]' : 'ml-0'}`}
+                            className="flex-1 relative flex flex-col transition-all duration-500"
                         >
                             {/* Banner dynamic backdrop layer */}
                             <div className="absolute inset-0 z-0 pointer-events-none">
@@ -789,6 +717,8 @@ export const SummonScreen: React.FC = () => {
                                     </div>
                                 </div>
                             </main>
+
+
                         </motion.div>
                     </div>
                 )}
@@ -892,7 +822,7 @@ export const SummonScreen: React.FC = () => {
 
                                         return (
                                             <div 
-                                                key={`summon-res-${i}-${res.id || 'gen'}`} 
+                                                key={`summon-res-${i}-${(res as any).id || (res as any).item?.id || 'gen'}`} 
                                                 className={`perspective-container relative ${pullResults.length === 1 ? 'h-[60vh] max-h-[520px] min-h-[400px]' : 'h-64 md:h-72'} group`}
                                             >
                                                 <motion.div 
@@ -1390,6 +1320,125 @@ export const SummonScreen: React.FC = () => {
                             </div>
                         </main>
                     </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* FLOATING SIDE MENU TOGGLE BUTTON (BOTTOM RIGHT) */}
+            {phase === 'SELECT' && (
+                <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                        AudioManager.getInstance().playSFX('click');
+                        setIsBannerMenuOpen(prev => !prev);
+                    }}
+                    className={`
+                        fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 md:px-6 py-2.5 md:py-3 rounded-2xl border-2 backdrop-blur-2xl shadow-2xl transition-all cursor-pointer group
+                        ${isBannerMenuOpen 
+                            ? 'bg-red-600 border-red-400 text-white shadow-red-600/30' 
+                            : 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 border-orange-300/60 text-white shadow-orange-600/40 hover:brightness-110'
+                        }
+                    `}
+                >
+                    <div className={`p-1 rounded-lg transition-transform ${isBannerMenuOpen ? 'rotate-90 bg-red-700' : 'bg-orange-700/50 group-hover:rotate-12'}`}>
+                        {isBannerMenuOpen ? <X size={20} /> : <Layers size={22} />}
+                    </div>
+                    <span className="font-black italic uppercase tracking-[0.2em] text-xs md:text-sm drop-shadow-md">
+                        {isBannerMenuOpen ? 'FECHAR MENU' : 'MENU BANNERS'}
+                    </span>
+                </motion.button>
+            )}
+
+            {/* BACKDROP & SIDEBAR DRAWER OVERLAY */}
+            <AnimatePresence>
+                {isBannerMenuOpen && (
+                    <>
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => {
+                                AudioManager.getInstance().playSFX('cancel');
+                                setIsBannerMenuOpen(false);
+                            }}
+                            className="fixed inset-0 z-40 bg-stone-950/80 backdrop-blur-xs cursor-pointer"
+                        />
+                        <motion.div
+                            initial={{ x: '-100%', opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            exit={{ x: '-100%', opacity: 0 }}
+                            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                            className="fixed inset-y-0 left-0 z-50 bg-stone-950/95 border-r border-white/10 backdrop-blur-2xl flex flex-col shadow-[20px_0_60px_rgba(0,0,0,0.9)] w-[88vw] sm:w-[360px] md:w-[420px] p-5 pt-8"
+                        >
+                            {/* Header of Banner Lateral Drawer */}
+                            <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10 shrink-0">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 rounded-xl bg-orange-500/20 border border-orange-500/40 text-orange-400">
+                                        <Layers size={22} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black italic uppercase tracking-[0.15em] text-white text-base md:text-lg">
+                                            MENU DE BANNERS
+                                        </h3>
+                                        <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
+                                            SELECIONE O BANNER DESEJADO
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        AudioManager.getInstance().playSFX('cancel');
+                                        setIsBannerMenuOpen(false);
+                                    }}
+                                    className="p-2.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-stone-400 hover:text-white transition-all cursor-pointer"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            {/* Banners List */}
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-1 flex flex-col gap-2.5">
+                                {BANNERS.map((banner, i) => {
+                                    const isSelected = activeBannerIdx === i;
+                                    const isItemBanner = banner.id === 'rare_items';
+                                    const IconComponent = isItemBanner ? Backpack : (banner.id === 'eternal_characters' ? Sparkles : Star);
+
+                                    return (
+                                        <motion.button
+                                            key={banner.id}
+                                            whileHover={{ scale: 1.02, x: 4 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={() => {
+                                                setActiveBannerIdx(i);
+                                                setIsBannerMenuOpen(false);
+                                                AudioManager.getInstance().playSFX('click');
+                                            }}
+                                            className={`
+                                                relative flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group text-left overflow-hidden
+                                                ${isSelected 
+                                                    ? 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 border-orange-300 text-white font-black italic shadow-lg shadow-orange-950/40' 
+                                                    : 'bg-stone-900/70 border-white/5 text-stone-300 hover:bg-stone-800/80 hover:border-orange-500/40 hover:text-white'}
+                                            `}
+                                        >
+                                            <div className="flex items-center gap-3.5 relative z-10">
+                                                <div className={`p-2 rounded-xl ${isSelected ? 'bg-black/30 text-white' : 'bg-stone-950 text-orange-400 group-hover:text-white'}`}>
+                                                    <IconComponent className="w-5 h-5" />
+                                                </div>
+                                                <div className="flex flex-col min-w-0">
+                                                    <span className="text-xs md:text-sm uppercase tracking-[0.15em] font-black truncate">{banner.title}</span>
+                                                    <span className={`text-[9px] font-bold uppercase tracking-widest ${isSelected ? 'text-stone-100' : 'text-stone-500'}`}>{banner.type}</span>
+                                                </div>
+                                            </div>
+
+                                            {isSelected && (
+                                                <div className="w-2 h-2 rounded-full bg-white shadow-[0_0_10px_white] relative z-10" />
+                                            )}
+                                        </motion.button>
+                                    );
+                                })}
+                            </div>
+                        </motion.div>
+                    </>
                 )}
             </AnimatePresence>
         </div>

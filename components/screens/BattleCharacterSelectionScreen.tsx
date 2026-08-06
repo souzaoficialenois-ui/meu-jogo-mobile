@@ -16,6 +16,10 @@ import { SummonManager } from "../../services/SummonManager";
 import { CharacterPreview } from "../CharacterPreview";
 import { useUI } from "../../contexts/UIContext";
 import { KiParticles } from "../KiParticles";
+import { EmoteRadialMenu } from "../emotes/EmoteRadialMenu";
+import { EmoteDisplayBubble } from "../emotes/EmoteDisplayBubble";
+import { EmoteData } from "../emotes/EmoteTypes";
+import { NetworkManager } from "../../services/NetworkManager";
 import {
   ChevronLeft,
   Sword,
@@ -36,7 +40,8 @@ export const BattleCharacterSelectionScreen: React.FC<{
   onTeamChange?: (teamIds: string[]) => void;
   onBack?: () => void;
   isMultiplayer?: boolean;
-}> = ({ overrideMaxSelection, onConfirmSelection, onTeamChange, onBack, isMultiplayer }) => {
+  opponentTeamIds?: string[];
+}> = ({ overrideMaxSelection, onConfirmSelection, onTeamChange, onBack, isMultiplayer, opponentTeamIds }) => {
   const {
     changeScene,
     completeCharacterSelection,
@@ -46,7 +51,9 @@ export const BattleCharacterSelectionScreen: React.FC<{
     p2TeamSize,
     selectionMode,
     settings,
+    playerProfile,
     equippedSkins: rawEquippedSkins,
+    isChatOpen,
   } = useSceneManager();
   const equippedSkins = rawEquippedSkins || {};
   const { s, sx, sy, getPos } = useUI();
@@ -61,6 +68,14 @@ export const BattleCharacterSelectionScreen: React.FC<{
       onTeamChange(p1TeamIds);
     }
   }, [p1TeamIds, onTeamChange]);
+
+  const isOnlineMode = selectionMode === "ONLINE" || !!isMultiplayer;
+
+  useEffect(() => {
+    if (isOnlineMode && opponentTeamIds && Array.isArray(opponentTeamIds)) {
+      setP2TeamIds(opponentTeamIds);
+    }
+  }, [isOnlineMode, opponentTeamIds]);
   const [assistSelections, setAssistSelections] = useState<
     Record<string, import("../../types").AssistType>
   >({});
@@ -70,6 +85,50 @@ export const BattleCharacterSelectionScreen: React.FC<{
   const [selectedSkinId, setSelectedSkinId] = useState<Record<string, string>>({});
   const [p1TeamSkinIds, setP1TeamSkinIds] = useState<string[]>([]);
   const [p2TeamSkinIds, setP2TeamSkinIds] = useState<string[]>([]);
+  const [activeEmotes, setActiveEmotes] = useState<{
+    p1?: { emote: EmoteData; playerName: string } | null;
+    p2?: { emote: EmoteData; playerName: string } | null;
+  }>({});
+
+  const triggerEmote = (side: 'p1' | 'p2', emote: EmoteData, name: string) => {
+    setActiveEmotes(prev => ({
+      ...prev,
+      [side]: { emote, playerName: name }
+    }));
+    setTimeout(() => {
+      setActiveEmotes(prev => ({
+        ...prev,
+        [side]: null
+      }));
+    }, 3500);
+  };
+
+  const handleSelectEmote = (emote: EmoteData) => {
+    const isHost = NetworkManager.getInstance().isHost;
+    const side = isHost ? 'p1' : 'p2';
+    const myName = playerProfile?.name || (isHost ? "P1" : "P2");
+    triggerEmote(side, emote, myName);
+
+    if (isOnlineMode) {
+      NetworkManager.getInstance().sendEmote({
+        emote,
+        side,
+        playerName: myName
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!isOnlineMode) return;
+    const net = NetworkManager.getInstance();
+    net.onEmoteReceived = (data: any) => {
+      if (data?.emote) {
+        const isHost = net.isHost;
+        const remoteSide = data.side || (isHost ? 'p2' : 'p1');
+        triggerEmote(remoteSide, data.emote, data.playerName || (remoteSide === 'p1' ? 'P1' : 'P2'));
+      }
+    };
+  }, [isOnlineMode]);
 
   React.useEffect(() => {
     if (p1TeamIds.length < p1TeamSize && selectingFor !== "P1") {
@@ -78,13 +137,15 @@ export const BattleCharacterSelectionScreen: React.FC<{
   }, [p1TeamIds.length, p1TeamSize, selectingFor]);
 
   const actualP2TeamSize =
-    isMultiplayer || selectionMode === "TOURNAMENT"
+    selectionMode === "TOURNAMENT"
       ? 0
       : selectionMode === "BOSS"
         ? 1
         : selectionMode === "TRAINING"
           ? p1TeamSize
-          : p2TeamSize;
+          : (isMultiplayer || isOnlineMode)
+            ? (overrideMaxSelection ?? p1TeamSize)
+            : p2TeamSize;
 
   const roster = useMemo(() => {
     return BASE_CHARACTERS.map((base) => {
@@ -416,6 +477,19 @@ export const BattleCharacterSelectionScreen: React.FC<{
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement as HTMLElement | null;
+      const target = e.target as HTMLElement | null;
+      const isInput = (el: HTMLElement | null) => !!(el && (
+        el.tagName === 'INPUT' ||
+        el.tagName === 'TEXTAREA' ||
+        el.tagName === 'SELECT' ||
+        el.isContentEditable
+      ));
+
+      if (isInput(active) || isInput(target) || isChatOpen) {
+        return;
+      }
+
       // In LOCAL_VS mode, restrict keyboard inputs only to the player who owns the keyboard
       if (selectionMode === "LOCAL_VS") {
         const mapping = LocalMultiplayerManager.getInstance().getDeviceMapping();
@@ -915,7 +989,7 @@ export const BattleCharacterSelectionScreen: React.FC<{
               const isSel = (assistSelections[`${player}_${activePreviewChar.id}`] || "SPECIAL") === opt.id;
               return (
                 <button
-                  key={opt.id}
+                  key={`assist-${player}-${activePreviewChar.id}-${opt.id}-${idx}`}
                   title={`${opt.name}: ${opt.description}`}
                   onClick={() => {
                     setAssistSelections((prev) => ({
@@ -1166,7 +1240,7 @@ export const BattleCharacterSelectionScreen: React.FC<{
                                     const isSel = (assistSelections[`P1_${char.id}`] || "SPECIAL") === opt.id;
                                     return (
                                       <button
-                                        key={opt.id}
+                                        key={`p1-assist-${char.id}-${opt.id}-${idx}`}
                                         title={`${opt.name}: ${opt.description}`}
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -1233,7 +1307,7 @@ export const BattleCharacterSelectionScreen: React.FC<{
               {/* Symmetrical Character Roster Grid */}
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
                 <div className="grid grid-cols-4" style={{ gap: s(10) }}>
-                  {BASE_ROSTER_IDS.map((baseId) => {
+                  {BASE_ROSTER_IDS.map((baseId, index) => {
                     const baseChar = roster.find((c) => c.id === baseId);
                     if (!baseChar) return null;
 
@@ -1256,7 +1330,7 @@ export const BattleCharacterSelectionScreen: React.FC<{
 
                     return (
                       <motion.button
-                        key={baseChar.id}
+                        key={`grid-${baseChar.id}-${index}`}
                         onClick={() => handleCharClick(displayChar.id, !!displayChar.isLocked, baseId)}
                         className={`
                           relative aspect-[4/5] rounded-xl overflow-hidden transition-all duration-300 transform border bg-stone-900 group shrink-0
@@ -1276,7 +1350,7 @@ export const BattleCharacterSelectionScreen: React.FC<{
                           <div className="relative w-full h-full overflow-hidden">
                             <AnimatePresence mode="wait">
                               <motion.div
-                                key={displayChar.id}
+                                key={`portrait-${displayChar.id}-${index}`}
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 1.05 }}
@@ -1429,7 +1503,7 @@ export const BattleCharacterSelectionScreen: React.FC<{
                                       const isSel = (assistSelections[`P2_${char.id}`] || "SPECIAL") === opt.id;
                                       return (
                                         <button
-                                          key={opt.id}
+                                          key={`p2-assist-${char.id}-${opt.id}-${idx}`}
                                           title={`${opt.name}: ${opt.description}`}
                                           onClick={(e) => {
                                             e.stopPropagation();
@@ -1454,22 +1528,26 @@ export const BattleCharacterSelectionScreen: React.FC<{
                                 </div>
 
                                 {/* Deselect Hover Button */}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoveChar(char.id, "P2");
-                                  }}
-                                  className="absolute rounded-lg bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg transform scale-90 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
-                                  style={{ top: -s(4), right: -s(4), width: s(24), height: s(24) }}
-                                >
-                                  ✕
-                                </button>
+                                {!isOnlineMode && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveChar(char.id, "P2");
+                                    }}
+                                    className="absolute rounded-lg bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg transform scale-90 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                                    style={{ top: -s(4), right: -s(4), width: s(24), height: s(24) }}
+                                  >
+                                    ✕
+                                  </button>
+                                )}
                               </div>
                             ) : (
                               <div className="flex flex-col items-center text-center opacity-40">
                                 <span className="font-light text-cyan-500/80 animate-pulse" style={{ fontSize: s(20) }}>+</span>
                                 <span className="font-black tracking-widest text-stone-500 uppercase mt-1" style={{ fontSize: s(9) }}>
-                                  {settings.language.startsWith('en') ? "Empty Slot" : "Slot Vazio"}
+                                  {isOnlineMode
+                                    ? (settings.language.startsWith('en') ? "Awaiting Rival..." : "Aguardando Rival...")
+                                    : (settings.language.startsWith('en') ? "Empty Slot" : "Slot Vazio")}
                                 </span>
                               </div>
                             )}
@@ -1592,6 +1670,15 @@ export const BattleCharacterSelectionScreen: React.FC<{
             )}
           </div>
         </footer>
+
+        {/* Emote Overlay & Radial Menu - ONLINE MATCHES ONLY */}
+        {isOnlineMode && (
+          <>
+            <EmoteDisplayBubble emote={activeEmotes.p1?.emote || null} playerName={activeEmotes.p1?.playerName || "P1"} position="top-left" />
+            <EmoteDisplayBubble emote={activeEmotes.p2?.emote || null} playerName={activeEmotes.p2?.playerName || "P2"} position="top-right" />
+            <EmoteRadialMenu onSelectEmote={handleSelectEmote} positionClassName="bottom-20 right-8" />
+          </>
+        )}
 
         <style>{`
           .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }

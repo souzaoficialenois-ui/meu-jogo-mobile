@@ -288,255 +288,38 @@ export const PreloadScreen: React.FC = () => {
     }, [coreAudioInstalled, systemSoundsReady, assetsLoaded, changeScene]);
 
     return (
-        <div className="absolute inset-0 z-[1000] bg-stone-950 flex flex-col items-center justify-center overflow-hidden font-sans select-none text-stone-200">
-            {/* Ambient Backgrounds */}
-            <div className="absolute inset-0 opacity-15 pointer-events-none mix-blend-overlay bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]" />
-            <div className="absolute top-0 right-0 w-[50vw] h-[50vw] bg-orange-600 opacity-[0.04] rounded-full blur-[120px] pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-[50vw] h-[40vw] bg-orange-600 opacity-[0.03] rounded-full blur-[120px] pointer-events-none" />
-
-            <div className="absolute inset-0">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-orange-950/20 via-transparent to-transparent"></div>
+        <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.45, ease: "easeInOut" }}
+            className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center select-none overflow-hidden font-mono text-white pointer-events-none"
+        >
+            <div className="flex flex-col items-center justify-center gap-3">
+                <span className="text-xl md:text-2xl font-black uppercase tracking-[0.25em] text-white">
+                    CARREGANDO...
+                </span>
+                <span className="text-4xl md:text-5xl font-black italic text-white tracking-widest">
+                    {!coreAudioInstalled 
+                        ? downloadProg.percentage 
+                        : (!systemSoundsReady ? Math.round(systemSoundsPct) : Math.round(progress))}%
+                </span>
             </div>
 
-            {/* Top Toolbar: Sandbox Connectivity Simulator Card */}
-            <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
-                <button
-                    onClick={toggleInternetLossSimulator}
-                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all shadow-md cursor-pointer ${
-                        networkLoss
-                            ? 'bg-red-950/80 border-red-500 text-red-100 hover:bg-red-900'
-                            : 'bg-stone-900/90 border-stone-700 text-slate-300 hover:border-orange-500'
-                    }`}
-                >
-                    {networkLoss ? (
-                        <>
-                            <WifiOff className="w-3.5 h-3.5 text-red-400 animate-pulse" />
-                            <span>Simulador: Internet OFF</span>
-                        </>
-                    ) : (
-                        <>
-                            <Wifi className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                            <span>Simular Queda de Conexão</span>
-                        </>
-                    )}
-                </button>
-            </div>
-
-            {/* Main Content Card Container */}
-            <div className="relative z-10 w-full max-w-4xl px-8 flex flex-col items-center">
-                
-                {/* 1. CORE AUDIO DOWNLOAD VIEW (MANDATORY ON BOOT) */}
-                {!coreAudioInstalled ? (
-                    <motion.div 
-                        initial={{ opacity: 0, scale: 0.98 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="w-full bg-[#0d0f14] border border-white/5 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+            {/* Error state if connection fails */}
+            {(downloadProg.status === 'failed' || systemSoundsError) && (
+                <div className="mt-8 flex flex-col items-center gap-3 pointer-events-auto">
+                    <p className="text-xs text-red-400 font-bold max-w-md text-center">
+                        {downloadProg.error || systemSoundsError}
+                    </p>
+                    <button
+                        onClick={!coreAudioInstalled ? triggerCoreAudioDownload : loadSystemSoundsAndAssets}
+                        className="px-5 py-2.5 bg-stone-900 hover:bg-stone-800 border border-stone-700 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-colors cursor-pointer"
                     >
-                        <div className="absolute top-0 left-0 h-1 bg-gradient-to-r from-orange-600 to-amber-500 animate-[pulse_2s_infinite]" style={{ width: `${downloadProg.percentage}%` }} />
-                        
-                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 pb-6 border-b border-white/5">
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <span className="h-2 w-2 rounded-full bg-orange-500 animate-ping" />
-                                    <h2 className="text-xl font-black uppercase italic tracking-wider text-orange-400">INSTALAÇÃO OBRIGATÓRIA</h2>
-                                </div>
-                                <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Core Audio Pack (Efeitos de Batalha, Announcer & Interface)</h3>
-                            </div>
-                            
-                            <div className="bg-stone-900 border border-white/5 px-4 py-2 rounded-xl text-right shrink-0">
-                                <span className="text-[10px] uppercase font-black tracking-widest text-slate-500 block">Tamanho</span>
-                                <span className="text-sm font-black text-slate-300">45 MB total</span>
-                            </div>
-                        </div>
-
-                        {/* Middle Info / Visual progress graph */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            
-                            {/* Byte size indicator */}
-                            <div className="bg-stone-950/70 border border-white/5 rounded-2xl p-4 flex flex-col justify-center">
-                                <span className="text-[10px] uppercase font-black tracking-widest text-slate-500 block mb-1">Status de Rede</span>
-                                {downloadProg.status === 'unstable_network' || downloadProg.status === 'retrying' ? (
-                                    <div className="flex items-center gap-2 text-amber-400 font-black text-xs uppercase animate-pulse">
-                                        <AlertTriangle className="w-4 h-4" />
-                                        <span>Rede Instável ({downloadProg.retryCount}/3)</span>
-                                    </div>
-                                ) : downloadProg.status === 'unpacking' ? (
-                                    <div className="flex items-center gap-2 text-blue-400 font-black text-xs uppercase">
-                                        <Activity className="w-4 h-4 animate-spin" />
-                                        <span>Extraindo Arquivos</span>
-                                    </div>
-                                ) : downloadProg.status === 'verifying_hash' ? (
-                                    <div className="flex items-center gap-2 text-teal-400 font-black text-xs uppercase animate-pulse">
-                                        <Shield className="w-4 h-4" />
-                                        <span>Garantindo Integridade</span>
-                                    </div>
-                                ) : (
-                                    <div className="text-xs text-stone-200 font-bold flex items-center gap-2">
-                                        <Wifi className="w-4 h-4 text-emerald-400" />
-                                        <span>Download Ativo (4G/Wi-Fi)</span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Download Rate indicator */}
-                            <div className="bg-stone-950/70 border border-white/5 rounded-2xl p-4 flex flex-col justify-center">
-                                <span className="text-[10px] uppercase font-black tracking-widest text-slate-500 block mb-1">Velocidade</span>
-                                <div className="flex items-baseline gap-1">
-                                    <span className="text-2xl font-black italic text-white leading-none">
-                                        {downloadProg.status === 'downloading' ? downloadProg.speedMBs : '0'}
-                                    </span>
-                                    <span className="text-xs text-orange-500 font-bold uppercase">MB/s</span>
-                                </div>
-                            </div>
-
-                            {/* Time remaining */}
-                            <div className="bg-stone-950/70 border border-white/5 rounded-2xl p-4 flex flex-col justify-center">
-                                <span className="text-[10px] uppercase font-black tracking-widest text-slate-500 block mb-1">{t('strike_pass_time_remaining') || "Tempo Restante"}</span>
-                                <div className="text-slate-300 font-bold text-sm">
-                                    {downloadProg.status === 'downloading'
-                                        ? `${downloadProg.etaSeconds} ${t('preload_seconds') || "segundos"}`
-                                        : downloadProg.status === 'unpacking'
-                                        ? (t('preload_minutes') || 'Minutos...')
-                                        : '--'}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Interactive Extractor Console Logs ticker */}
-                        <div className="bg-black/90 p-4 rounded-xl border border-white/5 mb-6 text-left relative overflow-hidden">
-                            <span className="text-[8px] font-black tracking-wider text-orange-500/80 uppercase block mb-1.5 font-mono">{t('preload_extraction_terminal_simulator') || "Simulador de Terminal de Extração:"}</span>
-                            <div className="font-mono text-[10px] text-emerald-400/90 flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span>{downloadProg.status === 'downloading' ? `${t('preload_downloading_data_chunks') || "Baixando chunks de dados"} [${Math.round(downloadProg.bytesDownloaded / 1024 / 1024)}MB / 45MB]...` : extractorLog}</span>
-                            </div>
-                        </div>
-
-                        {/* Progress Bar Gauge */}
-                        <div className="space-y-3">
-                            <div className="flex justify-between items-baseline">
-                                <span className="text-xs font-black uppercase text-slate-400 tracking-wider">{t('preload_core_audio_progress') || "Progresso do Core Audio"}</span>
-                                <span className="text-3xl font-black italic text-orange-500">
-                                    {downloadProg.percentage}%
-                                </span>
-                            </div>
-                            <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-white/5">
-                                <motion.div 
-                                    className="h-full rounded-full bg-gradient-to-r from-orange-600 to-amber-400"
-                                    animate={{ width: `${downloadProg.percentage}%` }}
-                                    transition={{ duration: 0.1 }}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Connection drop & failure prompt */}
-                        {downloadProg.status === 'failed' && (
-                            <div className="mt-6 p-4 rounded-xl bg-red-950/40 border border-red-500/30 flex flex-col sm:flex-row justify-between items-center gap-4">
-                                <p className="text-xs text-red-200 font-bold">{downloadProg.error}</p>
-                                <button
-                                    onClick={triggerCoreAudioDownload}
-                                    className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase italic tracking-wider shadow-lg shrink-0 flex items-center gap-1.5 cursor-pointer"
-                                >
-                                    <RefreshCw className="w-3.5 h-3.5" />
-                                    {t('preload_reinstall_pack') || "Reinstalar pacote"}
-                                </button>
-                            </div>
-                        )}
-                        
-                    </motion.div>
-                ) : (
-                    
-                    /* 2. STANDARD STATIC LOGO & LOADING BAR (FOR CORE BOOT / SYSTEM SOUNDS) */
-                    <div className="w-full max-w-4xl px-12 flex flex-col items-center">
-                        <motion.div
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            className="mb-14 relative"
-                        >
-                            <Zap className="absolute -top-12 -left-12 w-24 h-24 text-orange-500/20 animate-pulse" />
-                            <h1 className="text-8xl font-black italic text-white tracking-tighter uppercase drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
-                                {!systemSoundsReady ? (t('preload_audio_loading_title') || "ÁUDIO") : (t('res_loading_uppercase') || "CARREGANDO")}<span className="text-orange-500 animate-pulse">...</span>
-                            </h1>
-                            <div className="absolute -bottom-4 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent"></div>
-                        </motion.div>
-
-                        <div className="w-full space-y-6">
-                            <div className="flex justify-between items-end">
-                                <div className="flex items-center gap-3">
-                                    <Activity className="w-5 h-5 text-orange-500 animate-pulse" />
-                                    <span className="text-xs font-black text-slate-400 separator uppercase tracking-[0.2em]">
-                                        {!systemSoundsReady 
-                                            ? (t('preload_downloading_mandatory_sfx') || "BAIXANDO SONS DO SISTEMA OBRIGATÓRIOS") 
-                                            : (t('preload_preparing_battle_resources') || "PREPARANDO BATALHA E RECURSOS")
-                                        }
-                                    </span>
-                                </div>
-                                <span className="text-4xl font-black italic text-white tracking-tighter">
-                                    {!systemSoundsReady ? Math.round(systemSoundsPct) : Math.round(progress)}
-                                    <span className="text-sm text-orange-500 ml-1">%</span>
-                                </span>
-                            </div>
-
-                            <div className="relative h-4.5 w-full bg-[#0d0f14] border border-white/5 skew-x-[-12deg] overflow-hidden p-0.5 rounded-sm">
-                                <motion.div 
-                                    className="h-full rounded-sm bg-gradient-to-r from-orange-600 via-orange-400 to-slate-200"
-                                    animate={{ width: `${!systemSoundsReady ? systemSoundsPct : progress}%` }}
-                                    transition={{ duration: 0.3 }}
-                                />
-                            </div>
-
-                            {/* Additional status text feedback */}
-                            <div className="text-left font-mono text-[11px] text-zinc-400 pl-2">
-                                <span className="text-orange-500 font-bold mr-1.5">&gt;</span> 
-                                {systemSoundsStatusText}
-                            </div>
-
-                            {/* Connection failure state for system sounds */}
-                            {systemSoundsError && (
-                                <div className="p-4 rounded-xl bg-red-950/40 border border-red-500/30 flex flex-col sm:flex-row justify-between items-center gap-4 text-left">
-                                    <div>
-                                        <p className="text-xs text-red-200 font-bold">{t('preload_transmission_failure') || "Falha de Transmissão"}</p>
-                                        <p className="text-[10px] text-red-300/80 mt-0.5">{systemSoundsError}</p>
-                                    </div>
-                                    <button
-                                        onClick={loadSystemSoundsAndAssets}
-                                        className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase italic tracking-wider shadow-lg shrink-0 flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                        {t('res_retry') || "Tentar Novamente"}
-                                    </button>
-                                </div>
-                            )}
-
-                            <motion.div 
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                key={tip}
-                                className="bg-white/5 border-l-4 border-orange-500 p-6 skew-x-[-12deg] relative"
-                            >
-                                <div className="absolute top-0 right-0 px-3 py-1 bg-orange-600 skew-x-[12deg] text-[10px] font-black uppercase tracking-widest text-white translate-y-[-50%] translate-x-[10px]">
-                                    {tipCategory}
-                                </div>
-                                <div className="skew-x-[12deg] flex gap-4 items-start">
-                                    <Cpu className="w-6 h-6 text-orange-500 shrink-0 mt-1" />
-                                    <p className="text-base font-bold text-slate-300 italic leading-relaxed text-left flex flex-wrap items-center gap-y-1">
-                                        {renderTextWithSprites(tip)}
-                                    </p>
-                                </div>
-                            </motion.div>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Bottom Footer Info */}
-            <div className="absolute bottom-8 left-8 flex items-center gap-4 opacity-40">
-                <div className="w-10 h-10 border border-white/10 flex items-center justify-center skew-x-[-12deg]">
-                    <Shield className="w-5 h-5 skew-x-[12deg]" />
+                        {t('res_retry') || "Tentar Novamente"}
+                    </button>
                 </div>
-                <div className="text-left">
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">FIGHTER LEGEND ONE 1</p>
-                </div>
-            </div>
-        </div>
+            )}
+        </motion.div>
     );
 };

@@ -202,22 +202,48 @@ export class ProjectileConfigKeyManager {
     if (this.registry.has(lookupKey)) {
       return this.registry.get(lookupKey);
     }
+    if (this.registry.has(key)) {
+      return this.registry.get(key);
+    }
 
     if (PROJECTILE_DATABASE[lookupKey]) {
       const baseProj = PROJECTILE_DATABASE[lookupKey];
-      // Check if this matches a custom registry format
-      if (lookupKey.includes("_000") || lookupKey.includes("_001") || lookupKey.includes("_002")) {
-        const configured = this.registerProjectile(lookupKey, lookupKey, baseProj.name || lookupKey, baseProj);
-        return configured;
-      }
-      const fallbackKey = this.generateKey(lookupKey);
-      const configured = this.registerProjectile(fallbackKey, lookupKey, baseProj.name || lookupKey, baseProj);
-      this.registry.set(lookupKey, configured); // Register original key as fallback lookup too
+      const configured = this.registerProjectile(key, lookupKey, baseProj.name || key, baseProj);
+      return configured;
+    }
+    if (PROJECTILE_DATABASE[key]) {
+      const baseProj = PROJECTILE_DATABASE[key];
+      const configured = this.registerProjectile(key, key, baseProj.name || key, baseProj);
       return configured;
     }
 
-    if (this.registry.has(key)) {
-      return this.registry.get(key);
+    // Advanced dynamic fallback resolution for CHAVE_ keys (e.g. CHAVE_PROJETIL_1, CHAVE_GENKIDAMA_1, CHAVE_FECHO_1)
+    let candidateBaseId = "";
+    const upperKey = key.toUpperCase();
+    if (upperKey.includes("GENKIDAMA")) {
+      const numMatch = key.match(/\d+/);
+      const num = numMatch ? numMatch[0] : "1";
+      candidateBaseId = PROJECTILE_DATABASE[`GENKIDAMA_${num}`] ? `GENKIDAMA_${num}` : "GENKIDAMA_1";
+    } else if (upperKey.includes("FECHO")) {
+      const numMatch = key.match(/\d+/);
+      const num = numMatch ? numMatch[0] : "1";
+      candidateBaseId = PROJECTILE_DATABASE[`FECHO_DE_ENERGIA_${num}`] ? `FECHO_DE_ENERGIA_${num}` : "FECHO_DE_ENERGIA_1";
+    } else if (upperKey.includes("PROJETIL") || upperKey.includes("PROJ") || upperKey.includes("KI_BLAST")) {
+      const numMatch = key.match(/\d+/);
+      const num = numMatch ? numMatch[0] : "1";
+      candidateBaseId = PROJECTILE_DATABASE[`PROJETIL_${num}`] ? `PROJETIL_${num}` : (PROJECTILE_DATABASE[`KI_BLAST_${num}`] ? `KI_BLAST_${num}` : "PROJETIL_1");
+    }
+
+    if (candidateBaseId && PROJECTILE_DATABASE[candidateBaseId]) {
+      const baseProj = PROJECTILE_DATABASE[candidateBaseId];
+      const configured = this.registerProjectile(key, candidateBaseId, baseProj.name || key, baseProj);
+      return configured;
+    }
+
+    // Final safety fallback: default to PROJETIL_1
+    const fallbackBase = PROJECTILE_DATABASE["PROJETIL_1"] || PROJECTILE_DATABASE["GENKIDAMA_1"] || PROJECTILE_DATABASE["FECHO_DE_ENERGIA_1"];
+    if (fallbackBase) {
+      return this.registerProjectile(key, "PROJETIL_1", key, fallbackBase);
     }
 
     return undefined;
@@ -306,14 +332,20 @@ export class ProjectileConfigKeyManager {
 
       // Group all Genkidama animations on the active character under a SINGLE key!
       let genkiKey: string | null = null;
+      const isGenkiAnimKey = (k: string) => {
+        const upper = k.toUpperCase();
+        if (upper.includes("GENKIDAMA")) return true;
+        if (upper.startsWith("ULTIMATE_2") && char.id !== "kuririn") return true;
+        return false;
+      };
+
       const genkAnimKeys: string[] = Object.keys(anims).filter(k => {
+        if (!isGenkiAnimKey(k)) return false;
         const anim = anims[k];
         if (anim && anim.projectileId && anim.projectileId.toString().startsWith("CHAVE_")) {
           return false; // Skip grouping if they are already custom exclusive keys starting with CHAVE_
         }
-        return k.toUpperCase().includes("GENKIDAMA") || 
-               (k === "Ultimate_2_3" && char.id !== "kuririn") ||
-               (anim && anim.projectileId && anim.projectileId.toString().toUpperCase().includes("GENKIDAMA"));
+        return true;
       });
       const hasGenki = genkAnimKeys.length > 0;
 
@@ -358,24 +390,26 @@ export class ProjectileConfigKeyManager {
 
       Object.keys(anims).forEach((animKey) => {
         const anim = anims[animKey];
-        const isGenkAnim = (
-          animKey.toUpperCase().includes("GENKIDAMA") || 
-          (animKey === "Ultimate_2_3" && char.id !== "kuririn") ||
-          (anim && anim.projectileId && anim.projectileId.toString().toUpperCase().includes("GENKIDAMA"))
-        ) && !(anim && anim.projectileId && anim.projectileId.toString().startsWith("CHAVE_"));
+        if (!anim) return;
+
+        const isGenkAnim = isGenkiAnimKey(animKey);
         if (isGenkAnim) return; // Genkidama animations are completely handled and grouped above!
 
-        if (anim) {
-          if (anim.createsBeam && typeof anim.createsBeam === "string" && (
-              anim.createsBeam.includes("GENKIDAMA") ||
-              anim.createsBeam.includes("KI_BLAST") ||
-              anim.createsBeam.includes("PROJETIL") ||
-              anim.createsBeam.includes("PROJECTILE") ||
-              anim.createsBeam.includes("FECHO")
-          )) {
-            anim.projectileId = anim.createsBeam;
-            delete anim.createsBeam;
-          }
+        // Clean up accidental Genkidama projectileId on non-Genkidama animations (e.g. ULTIMATE_3_6, ULTIMATE_1_4, Beams)
+        if (anim.projectileId && typeof anim.projectileId === "string" && anim.projectileId.toUpperCase().includes("GENKIDAMA")) {
+          delete anim.projectileId;
+        }
+
+        if (anim.createsBeam && typeof anim.createsBeam === "string" && (
+            anim.createsBeam.includes("GENKIDAMA") ||
+            anim.createsBeam.includes("KI_BLAST") ||
+            anim.createsBeam.includes("PROJETIL") ||
+            anim.createsBeam.includes("PROJECTILE") ||
+            anim.createsBeam.includes("FECHO")
+        )) {
+          anim.projectileId = anim.createsBeam;
+          delete anim.createsBeam;
+        }
 
           if (anim.projectileId && typeof anim.projectileId === "string") {
             const currentProjKey = anim.projectileId;
@@ -396,11 +430,11 @@ export class ProjectileConfigKeyManager {
               const existing = this.registry.get(currentProjKey);
               if (existing) {
                 const merged = {
-                  ...existing,
                   ...mergedProperties,
-                  middle: (existing.middle || mergedProperties.middle) ? {
-                    ...existing.middle,
-                    ...mergedProperties.middle
+                  ...existing,
+                  middle: (mergedProperties.middle || existing.middle) ? {
+                    ...mergedProperties.middle,
+                    ...existing.middle
                   } : { imageUrl: '', frames: 1, frameWidth: 0, frameHeight: 0 },
                 } as ConfiguredProjectile;
                 this.registry.set(currentProjKey, merged);
@@ -441,7 +475,6 @@ export class ProjectileConfigKeyManager {
               anim.projectileId = finalKey;
             }
           }
-        }
       });
     });
     this.saveToStorage();
@@ -515,10 +548,17 @@ export class ProjectileConfigKeyManager {
 
   private loadFromStorage() {
     try {
-      // Clear legacy storage to prevent conflicts with codebase static configurations
-      localStorage.removeItem("EXCLUSIVE_PROJECTILES_REGISTRY");
+      if (typeof localStorage !== "undefined") {
+        const saved = localStorage.getItem("EXCLUSIVE_PROJECTILES_REGISTRY_V2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          Object.keys(parsed).forEach((k) => {
+            this.registry.set(k, parsed[k]);
+          });
+        }
+      }
     } catch (e) {
-      // Ignore
+      console.error("Error loading ProjectileConfigKeyManager from storage:", e);
     }
 
     try {
@@ -529,7 +569,16 @@ export class ProjectileConfigKeyManager {
     }
   }
 
-  private saveToStorage() {
-    // Completely removed local storage persistence to prevent cache sync bugs
+  public saveToStorage() {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const obj: Record<string, ConfiguredProjectile> = {};
+      this.registry.forEach((val, key) => {
+        obj[key] = val;
+      });
+      localStorage.setItem("EXCLUSIVE_PROJECTILES_REGISTRY_V2", JSON.stringify(obj));
+    } catch (e) {
+      console.error("Error saving ProjectileConfigKeyManager to storage:", e);
+    }
   }
 }

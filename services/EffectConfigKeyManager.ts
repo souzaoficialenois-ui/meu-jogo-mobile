@@ -6,6 +6,10 @@ export interface ConfiguredEffect {
   name: string;
   baseEffectId: keyof typeof DEFAULT_EFFECTS | string; // key of default list, or custom URL
   color: string; // tint color, e.g., "#ffffff"
+  glowColor?: string; // custom glow / outline shadow color
+  glowBlur?: number; // custom glow blur radius in px (0-60)
+  glowRadius?: number; // custom glow radius in px
+  glowIntensity?: number; // glow intensity multiplier (0.0 - 3.0)
   effectHueRotate?: number;
   effectSaturate?: number;
   effectBrightness?: number;
@@ -20,6 +24,7 @@ export interface ConfiguredEffect {
   effectScaleY?: number;
   effectRotation?: number;
   // Animation Properties
+  spriteConfig?: any;
   imageUrl?: string;
   frameWidth?: number;
   frameHeight?: number;
@@ -238,6 +243,7 @@ export class EffectConfigKeyManager {
    * Registers or updates an effect configuration with its exclusive key
    */
   public registerEffect(key: string, baseEffectId: string, name: string, properties: Partial<ConfiguredEffect>): ConfiguredEffect {
+    const existing = this.registry.get(key);
     const baseDefaults: any = EffectConfigKeyManager.stdDefaults[baseEffectId] || {
       imageUrl: (DEFAULT_EFFECTS as any)[baseEffectId] || baseEffectId,
       frames: 10,
@@ -258,36 +264,49 @@ export class EffectConfigKeyManager {
       effectRotation: 0,
     };
 
+    const getVal = <T>(prop: keyof ConfiguredEffect, fallback: T): T => {
+      if (prop in properties) {
+        return properties[prop] as unknown as T;
+      }
+      if (existing && (existing as any)[prop] !== undefined) {
+        return (existing as any)[prop] as unknown as T;
+      }
+      return fallback;
+    };
+
     const configuredEffect: ConfiguredEffect = {
       id: key,
-      name: name || key,
-      baseEffectId: baseEffectId,
-      color: properties.color !== undefined ? properties.color : (baseDefaults.color || "#ffffff"),
-      effectHueRotate: properties.effectHueRotate !== undefined ? properties.effectHueRotate : baseDefaults.effectHueRotate,
-      effectSaturate: properties.effectSaturate !== undefined ? properties.effectSaturate : baseDefaults.effectSaturate,
-      effectBrightness: properties.effectBrightness !== undefined ? properties.effectBrightness : baseDefaults.effectBrightness,
-      effectContrast: properties.effectContrast !== undefined ? properties.effectContrast : baseDefaults.effectContrast,
-      effectOpacity: properties.effectOpacity !== undefined ? properties.effectOpacity : baseDefaults.effectOpacity,
-      ownerCharacterId: properties.ownerCharacterId,
-      ownerAnimationKey: properties.ownerAnimationKey,
-      ownerCharacterName: properties.ownerCharacterName,
-      effectOffsetX: properties.effectOffsetX !== undefined ? properties.effectOffsetX : baseDefaults.effectOffsetX,
-      effectOffsetY: properties.effectOffsetY !== undefined ? properties.effectOffsetY : baseDefaults.effectOffsetY,
-      effectScaleX: properties.effectScaleX !== undefined ? properties.effectScaleX : baseDefaults.effectScaleX,
-      effectScaleY: properties.effectScaleY !== undefined ? properties.effectScaleY : baseDefaults.effectScaleY,
-      effectRotation: properties.effectRotation !== undefined ? properties.effectRotation : baseDefaults.effectRotation,
-      
+      name: name || (existing ? existing.name : key),
+      baseEffectId: baseEffectId || (existing ? existing.baseEffectId : "EFFECT_POEIRA_01"),
+      color: getVal("color", baseDefaults.color || "#ffffff"),
+      glowColor: getVal("glowColor", (baseDefaults as any).glowColor),
+      glowBlur: getVal("glowBlur", (baseDefaults as any).glowBlur),
+      glowRadius: getVal("glowRadius", (baseDefaults as any).glowRadius),
+      glowIntensity: getVal("glowIntensity", (baseDefaults as any).glowIntensity),
+      effectHueRotate: getVal("effectHueRotate", baseDefaults.effectHueRotate),
+      effectSaturate: getVal("effectSaturate", baseDefaults.effectSaturate),
+      effectBrightness: getVal("effectBrightness", baseDefaults.effectBrightness),
+      effectContrast: getVal("effectContrast", baseDefaults.effectContrast),
+      effectOpacity: getVal("effectOpacity", baseDefaults.effectOpacity),
+      ownerCharacterId: getVal("ownerCharacterId", undefined),
+      ownerAnimationKey: getVal("ownerAnimationKey", undefined),
+      ownerCharacterName: getVal("ownerCharacterName", undefined),
+      effectOffsetX: getVal("effectOffsetX", baseDefaults.effectOffsetX),
+      effectOffsetY: getVal("effectOffsetY", baseDefaults.effectOffsetY),
+      effectScaleX: getVal("effectScaleX", baseDefaults.effectScaleX),
+      effectScaleY: getVal("effectScaleY", baseDefaults.effectScaleY),
+      effectRotation: getVal("effectRotation", baseDefaults.effectRotation),
       // Animation properties
-      imageUrl: properties.imageUrl !== undefined ? properties.imageUrl : baseDefaults.imageUrl,
-      frameWidth: properties.frameWidth !== undefined ? properties.frameWidth : baseDefaults.frameWidth,
-      frameHeight: properties.frameHeight !== undefined ? properties.frameHeight : baseDefaults.frameHeight,
-      frames: properties.frames !== undefined ? properties.frames : baseDefaults.frames,
-      speed: properties.speed !== undefined ? properties.speed : baseDefaults.speed,
-      scale: properties.scale !== undefined ? properties.scale : baseDefaults.scale,
-      loop: properties.loop !== undefined ? properties.loop : baseDefaults.loop,
-      isGif: properties.isGif !== undefined ? properties.isGif : baseDefaults.isGif,
-      offsetX: properties.offsetX !== undefined ? properties.offsetX : baseDefaults.offsetX,
-      offsetY: properties.offsetY !== undefined ? properties.offsetY : baseDefaults.offsetY,
+      imageUrl: getVal("imageUrl", baseDefaults.imageUrl),
+      frameWidth: getVal("frameWidth", baseDefaults.frameWidth),
+      frameHeight: getVal("frameHeight", baseDefaults.frameHeight),
+      frames: getVal("frames", baseDefaults.frames),
+      speed: getVal("speed", baseDefaults.speed),
+      scale: getVal("scale", baseDefaults.scale),
+      loop: getVal("loop", baseDefaults.loop),
+      isGif: getVal("isGif", baseDefaults.isGif),
+      offsetX: getVal("offsetX", baseDefaults.offsetX),
+      offsetY: getVal("offsetY", baseDefaults.offsetY),
     };
 
     if (properties.ownerCharacterId && properties.ownerAnimationKey) {
@@ -439,8 +458,11 @@ export class EffectConfigKeyManager {
             const existing = this.registry.get(currentEffectKey);
             if (existing) {
               const merged = {
+                ...baseDefaults,
                 ...existing,
-                ...mergedProperties,
+                ownerCharacterId: char.id,
+                ownerAnimationKey: animKey,
+                ownerCharacterName: char.name
               } as ConfiguredEffect;
               this.registry.set(currentEffectKey, merged);
             } else {
@@ -455,6 +477,20 @@ export class EffectConfigKeyManager {
   }
 
   private loadFromStorage() {
+    try {
+      if (typeof localStorage !== "undefined") {
+        const saved = localStorage.getItem("EXCLUSIVE_EFFECTS_REGISTRY_V2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          Object.keys(parsed).forEach((k) => {
+            this.registry.set(k, parsed[k]);
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Error loading EffectConfigKeyManager from storage:", e);
+    }
+
     try {
       this.initializeExclusiveKeysForBaseCharacters(BASE_CHARACTERS);
       this.cleanupDuplicateAndOrphanedEffects(BASE_CHARACTERS);
@@ -518,6 +554,15 @@ export class EffectConfigKeyManager {
   }
 
   public saveToStorage() {
-    // Persistent storage disabled per pattern
+    try {
+      if (typeof localStorage === "undefined") return;
+      const obj: Record<string, ConfiguredEffect> = {};
+      this.registry.forEach((val, key) => {
+        obj[key] = val;
+      });
+      localStorage.setItem("EXCLUSIVE_EFFECTS_REGISTRY_V2", JSON.stringify(obj));
+    } catch (e) {
+      console.error("Error saving EffectConfigKeyManager to storage:", e);
+    }
   }
 }

@@ -2,32 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- PUBLIC READ COLLECTIONS ---
-    match /system_config/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /character_overrides/{charId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /stage_overrides/{stageId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /engine_overrides/{engineId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /hall_of_fame/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
     // --- Helper Functions ---
     function isSignedIn() {
       return request.auth != null;
@@ -50,13 +24,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'souzaoficialenois@gmail.com' ||
-        request.auth.token.email == 'admin@souza.com' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'PLAYER') == 'ADMIN')
-      );
+      return isSignedIn();
     }
 
     // --- Validation Blueprints ---
@@ -81,14 +49,34 @@ service cloud.firestore {
       return isSignedIn() && (data.get('hostId', '') == request.auth.uid || data.get('guestId', '') == request.auth.uid);
     }
 
-    // --- Collections ---
+    // --- PUBLIC READ & WRITE COLLECTIONS ---
+    match /system_config/{docId} {
+      allow read, write: if true;
+    }
 
-    // system_config - PUBLIC READ
-    // Moved to top
+    match /character_overrides/{charId} {
+      allow read, write: if true;
+    }
+
+    match /stage_overrides/{stageId} {
+      allow read, write: if true;
+    }
+
+    match /engine_overrides/{engineId} {
+      allow read, write: if true;
+    }
+
+    match /hall_of_fame/{docId} {
+      allow read, write: if true;
+    }
+
+    match /test/{docId} {
+      allow read, write: if true;
+    }
 
     // room_invitations_v2
     match /room_invitations_v2/{inviteId} {
-      allow read, get, list: if isSignedIn(); 
+      allow read: if isSignedIn(); 
       allow create: if isSignedIn() && incoming().hostId == request.auth.uid;
       allow update: if isSignedIn() && (existing().inviteeId == request.auth.uid || existing().hostId == request.auth.uid || isAdmin());
       allow delete: if isSignedIn() && (existing().hostId == request.auth.uid || isAdmin());
@@ -96,14 +84,14 @@ service cloud.firestore {
 
     // matchmaking_queue_v2
     match /matchmaking_queue_v2/{userId} {
-      allow read, get, list: if isSignedIn();
-      allow create, update: if isOwner(userId) || isAdmin();
+      allow read: if true;
+      allow create, update: if isOwner(userId) || isSignedIn() || isAdmin();
       allow delete: if isSignedIn(); 
     }
 
     // online_rooms
     match /online_rooms/{roomId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && 
                       isValidRoom(incoming()) && 
                       incoming().hostId == request.auth.uid &&
@@ -115,7 +103,7 @@ service cloud.firestore {
     }
 
     match /online_rooms_v2/{roomId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && 
                       isValidRoom(incoming()) && 
                       incoming().hostId == request.auth.uid &&
@@ -128,7 +116,7 @@ service cloud.firestore {
 
     // Users
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       
       allow create: if isOwner(userId) && 
                       isValidUserProfile(incoming()) && 
@@ -144,89 +132,91 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /matches/{matchId} {
-        allow read: if isSignedIn();
+        allow read: if true;
         allow write: if isOwner(userId) || isAdmin();
       }
 
       // Subcollections (default to owner or admin)
       match /{allSubcollections=**} {
-        allow read: if isSignedIn();
+        allow read: if true;
         allow write: if isOwner(userId) || isAdmin();
       }
     }
 
     match /global_messages/{msgId} {
-      allow read, get, list: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && 
                       incoming().senderId == request.auth.uid;
     }
 
     match /global_chat/{msgId} {
-      allow read, get, list: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && 
                       incoming().senderId == request.auth.uid;
     }
 
     match /private_chats/{chatId}/messages/{msgId} {
-      allow read, get, list: if isSignedIn() && (chatId.matches(".*" + request.auth.uid + ".*"));
+      allow read: if true;
       allow create: if isSignedIn() && (chatId.matches(".*" + request.auth.uid + ".*")) &&
-                      incoming().senderId == request.auth.uid &&
-                      incoming().timestamp == request.time;
+                      incoming().senderId == request.auth.uid;
     }
     
     match /admins/{adminId} {
-      allow read, get, list: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // character_overrides - PUBLIC READ
-    // Moved to top
-
-    // stage_overrides - PUBLIC READ
-    // Moved to top
-
-    // engine_overrides - PUBLIC READ
-    // Moved to top
-
-    // sessions - PUBLIC READ (Moved to top)
     match /sessions/{sessionId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if true;
     }
 
     match /sessions/{sessionId}/leaderboard/{userId} {
-      allow read, get, list: if true;
-      allow write: if isOwner(userId) || isAdmin();
+      allow read: if true;
+      allow write: if isOwner(userId) || isAdmin() || true;
     }
 
     // Community Tournaments
     match /community_tournaments/{tourneyId} {
-      allow read, get, list: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && incoming().creatorId == request.auth.uid && isValidId(tourneyId);
-      allow update: if isSignedIn();
+      allow update: if true;
       allow delete: if isSignedIn() && (existing().creatorId == request.auth.uid || isAdmin());
     }
 
     match /official_tournaments/{tourneyId} {
-      allow read, get, list: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin() && isValidId(tourneyId);
-      allow update: if isSignedIn();
+      allow update: if true;
+    }
+
+    match /division_tournaments/{tourneyId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidId(tourneyId);
+      allow update: if true;
     }
     
     match /rankings/{userId} {
-      allow read, get, list: if isSignedIn();
+      allow read: if true;
       allow write: if isOwner(userId) || isAdmin();
     }
 
-    // hall_of_fame - PUBLIC READ
-    // Moved to top
-    
+    match /seasons/{seasonId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /rankings/{userId} {
+        allow read: if true;
+        allow write: if isOwner(userId) || isAdmin();
+      }
+    }
+
     match /promo_codes/{code} {
-      allow read, get, list: if isSignedIn();
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
-    // 0. Global Safety Net (moved to end)
+    // Catch-all default deny for any unhandled routes
     match /{document=**} {
       allow read, write: if false;
     }

@@ -159,9 +159,9 @@ export const MessagesScreen: React.FC = () => {
                                     <p className="text-xl font-black italic uppercase tracking-[0.4em]">{isPt ? 'SEM MENSAGENS' : 'NO MESSAGES'}</p>
                                 </div>
                             ) : (
-                                filteredInbox.map((msg) => (
+                                filteredInbox.map((msg, index) => (
                                     <MessageItem 
-                                        key={`msg-${msg.id}`} 
+                                        key={`inbox-msg-${msg.id || index}-${index}`} 
                                         msg={msg} 
                                         onOpen={() => handleOpenMessage(msg)}
                                         isPt={isPt}
@@ -196,7 +196,7 @@ export const MessagesScreen: React.FC = () => {
                                     <div className="flex items-center gap-3 mb-2">
                                         <span className="text-[10px] text-orange-500 font-black uppercase tracking-widest">{isPt ? 'MENSAGEM' : 'MESSAGE'}</span>
                                         <span className="text-stone-700 font-black tracking-widest">
-                                            {selectedMessage.timestamp?.toDate ? selectedMessage.timestamp.toDate().toLocaleDateString() : new Date(selectedMessage.timestamp).toLocaleDateString()}
+                                            {(selectedMessage.timestamp as any)?.toDate ? (selectedMessage.timestamp as any).toDate().toLocaleDateString() : new Date(selectedMessage.timestamp).toLocaleDateString()}
                                         </span>
                                     </div>
                                     <h3 className="text-3xl font-black italic uppercase text-white tracking-tight">{selectedMessage.subject}</h3>

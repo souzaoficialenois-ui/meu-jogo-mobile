@@ -59,7 +59,7 @@ export class AudioManager {
         await AudioEngine.getInstance().playMusic(type);
     }
 
-    public playSFX(type: 'click' | 'confirm' | 'cancel' | 'punch' | 'summon' | 'victory' | 'defeat' | 'charge' | 'reveal' | 'attack' | 'block' | 'ready' | 'fight' | 'ko' | 'narrator_ready' | 'narrator_fight' | 'narrator_change' | 'narrator_nice_combo' | 'narrator_great_combo' | 'narrator_excellent_combo' | 'narrator_wonderful_power' | 'narrator_max_power' | 'narrator_perfect' | string) {
+    public playSFX(type: 'click' | 'confirm' | 'cancel' | 'punch' | 'summon' | 'victory' | 'defeat' | 'charge' | 'reveal' | 'attack' | 'block' | 'ready' | 'fight' | 'ko' | 'narrator_ready' | 'narrator_fight' | 'narrator_change' | 'narrator_nice_combo' | 'narrator_great_combo' | 'narrator_excellent_combo' | 'narrator_wonderful_power' | 'narrator_max_power' | 'narrator_perfect' | string, volumeMultiplier: number = 1.0, worldX?: number, getPositionX?: () => number) {
         if (!AudioManager.isInBattle) {
             const isWhiteListed = [
                 'click', 'confirm', 'cancel', 'reveal', 'summon',
@@ -74,7 +74,7 @@ export class AudioManager {
                 return;
             }
         }
-        AudioEngine.getInstance().playSFX(type);
+        AudioEngine.getInstance().playSFX(type, volumeMultiplier, worldX, getPositionX);
     }
 
     public playLoopedSFX(type: string, loopKey: string, customMultiplier: number = 1.0) {
@@ -91,7 +91,7 @@ export class AudioManager {
         AudioEngine.getInstance().stopLoopedSFX(loopKey);
     }
 
-    public playVoice(voiceKey: string) {
+    public playVoice(voiceKey: string, worldX?: number, getPositionX?: () => number) {
         if (!AudioManager.isInBattle) {
             const lower = (voiceKey || "").toLowerCase();
             const isWhiteListed = lower.includes('intro') || 
@@ -103,7 +103,7 @@ export class AudioManager {
                 return;
             }
         }
-        AudioEngine.getInstance().playVoice(voiceKey);
+        AudioEngine.getInstance().playVoice(voiceKey, worldX, getPositionX);
     }
 
     public clearAudioCaches() {

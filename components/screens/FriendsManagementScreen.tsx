@@ -225,9 +225,9 @@ export const FriendsManagementScreen: React.FC = () => {
                                                     const search = searchQuery.toLowerCase();
                                                     return (p.name || '').toLowerCase().includes(search) || (p.playerId || '').toLowerCase().includes(search);
                                                 })
-                                                .map((p) => (
+                                                .map((p, idx) => (
                                                     <PlayerCard 
-                                                        key={`disc-${p.playerId}`} 
+                                                        key={`disc-${p.playerId}-${idx}`} 
                                                         player={p} 
                                                         onAdd={() => sendFriendRequest(p.playerId)} 
                                                         onProfile={() => setShowProfileId(p.playerId)}
@@ -248,9 +248,9 @@ export const FriendsManagementScreen: React.FC = () => {
                                     </div>
 
                                     <div className="grid grid-cols-1 gap-4">
-                                        {acceptedFriends.map((f) => (
+                                        {acceptedFriends.map((f, idx) => (
                                             <FriendListItem 
-                                                key={`friend-${f.friendId}`} 
+                                                key={`friend-${f.friendId}-${idx}`} 
                                                 friend={f} 
                                                 onRemove={() => removeFriend(f.friendId)} 
                                                 onProfile={() => setShowProfileId(f.friendId)}
@@ -304,12 +304,12 @@ export const FriendsManagementScreen: React.FC = () => {
                             </div>
 
                             <div className="p-10 max-h-[50vh] overflow-y-auto custom-scrollbar space-y-4">
-                                {pendingRequests.map((req) => (
-                                    <div key={`req-${req.friendId}`} className="bg-white/5 border border-white/5 p-6 rounded-3xl flex items-center justify-between group">
+                                {pendingRequests.map((req, idx) => (
+                                    <div key={`req-${req.friendId}-${idx}`} className="bg-white/5 border border-white/5 p-6 rounded-3xl flex items-center justify-between group">
                                         <div className="flex items-center gap-6">
                                             <div className="w-20 h-20 bg-stone-950 rounded-2xl overflow-hidden border border-white/5">
                                                 <img 
-                                                    src={AVATAR_LIST.find(a => a.id === req.avatarId)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                                                    src={AVATAR_LIST.find(a => a.id === req.avatarId)?.url || "/Assets/avatar/retrato/1.png"} 
                                                     className="w-full h-full object-cover filter contrast-125" 
                                                     alt=""
                                                 />
@@ -355,7 +355,7 @@ const PlayerCard: React.FC<{ player: PlayerProfile, onAdd: () => void, onProfile
     <motion.div className="bg-stone-900/10 border border-white/5 rounded-[28px] overflow-hidden flex h-40 shadow-2xl backdrop-blur-md hover:border-orange-500/30 transition-all duration-300">
         <div onClick={onProfile} className="w-36 h-full bg-stone-950/20 border-r border-white/5 relative flex items-center justify-center cursor-pointer overflow-hidden group">
             <img 
-                src={AVATAR_LIST.find(a => a.id === player.avatarId)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                src={AVATAR_LIST.find(a => a.id === player.avatarId)?.url || "/Assets/avatar/retrato/1.png"} 
                 className="w-full h-full object-cover filter contrast-125 group-hover:scale-110 transition-all duration-500" 
                 alt=""
             />
@@ -393,7 +393,7 @@ const FriendListItem: React.FC<{ friend: any, onRemove: () => void, onProfile: (
         <div className="flex items-center gap-6">
             <div onClick={onProfile} className="w-20 h-20 bg-stone-950/40 border border-white/5 rounded-2xl overflow-hidden relative cursor-pointer group/av">
                 <img 
-                    src={AVATAR_LIST.find(a => a.id === friend.avatarId)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                    src={AVATAR_LIST.find(a => a.id === friend.avatarId)?.url || "/Assets/avatar/retrato/1.png"} 
                     className="w-full h-full object-cover filter contrast-125 group-hover/av:scale-110 transition-all duration-500" 
                     alt=""
                 />

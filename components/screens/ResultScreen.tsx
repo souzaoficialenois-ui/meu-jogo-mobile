@@ -3,9 +3,11 @@ import { useSceneManager } from '../../contexts/SceneContext';
 import { SceneName } from '../../types';
 import { WIN_REWARD, RESOURCE_SPRITES } from '../../constants';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, RotateCcw, LogOut, Medal, Award, Users2 } from 'lucide-react';
+import { Trophy, RotateCcw, LogOut, Medal, Award, Users2, Flame, Zap, Swords, Heart, Activity, Timer } from 'lucide-react';
 import { AudioManager } from '../../services/AudioManager';
 import { NetworkManager } from '../../services/NetworkManager';
+import { OnlineTournamentService } from '../../services/OnlineTournamentService';
+import { auth } from '../../services/firebase';
 import { useUI } from '../../contexts/UIContext';
 
 export const ResultScreen: React.FC = () => {
@@ -27,6 +29,10 @@ export const ResultScreen: React.FC = () => {
         lastRankedReward,
         resetLastRankedReward,
         beginCharacterSelection,
+        completeCharacterSelection,
+        pendingP1Team,
+        pendingP2Team,
+        selectionMode,
         t // Added for translations
     } = useSceneManager();
 
@@ -51,9 +57,51 @@ export const ResultScreen: React.FC = () => {
                 notifyMissionProgress('DAMAGE_DEALT', Math.floor(matchResult.matchStats.p1.damageDealt));
             }
             
-            // ONLINE MATCH STATS
-            if (isOnline) {
-                updateMatchStats(isWinner);
+            // ONLINE & TOURNAMENT MATCH REPORTING
+            const pendingMatchStr = localStorage.getItem('pending_online_tournament_match');
+            if (pendingMatchStr) {
+                try {
+                    const pendingData = JSON.parse(pendingMatchStr);
+                    localStorage.removeItem('pending_online_tournament_match');
+                    
+                    const myUid = auth.currentUser?.uid || 'player';
+                    const winnerId = isWinner ? myUid : pendingData.opponentId;
+                    const scoreP1 = isWinner ? 2 : 0;
+                    const scoreP2 = isWinner ? 0 : 2;
+                    
+                    if (pendingData.isDivisionTourney) {
+                        OnlineTournamentService.getInstance().reportDivisionMatchResult(
+                            pendingData.tourneyId,
+                            pendingData.matchId,
+                            winnerId,
+                            scoreP1,
+                            scoreP2
+                        );
+                    } else if (pendingData.isOfficial) {
+                        OnlineTournamentService.getInstance().reportOfficialMatchResult(
+                            pendingData.tourneyId,
+                            pendingData.isPhaseMode,
+                            pendingData.groupIndex || 0,
+                            pendingData.matchId,
+                            winnerId
+                        );
+                    } else {
+                        OnlineTournamentService.getInstance().reportCommunityMatchResult(
+                            pendingData.tourneyId,
+                            pendingData.matchId,
+                            winnerId,
+                            scoreP1,
+                            scoreP2
+                        );
+                    }
+                } catch (e) {
+                    console.error("Failed to report pending tournament match result", e);
+                }
+            }
+
+            if (matchResult.gameMode !== 'TRAINING') {
+                const p1CharIds = gameEngine?.p1Team?.map(p => p.data?.id || (p as any).id).filter(Boolean) || [];
+                updateMatchStats(isWinner, p1CharIds);
             }
 
             if (isWinner) {
@@ -142,13 +190,15 @@ export const ResultScreen: React.FC = () => {
     };
 
     const handleRematch = () => {
-        if (!gameEngine) return;
         resetLastRankedReward?.();
-        const p1Team = gameEngine.p1Team.map(p => p.data);
-        const p2Team = gameEngine.p2Team.map(p => p.data);
-        const mode = matchResult.gameMode || 'ARCADE';
-        createGameSession(p1Team, p2Team, mode === 'TRAINING', mode);
-        startLoading(SceneName.VS_SCREEN);
+        const p1Team = gameEngine?.p1Team.map(p => p.data) || pendingP1Team || [];
+        const p2Team = gameEngine?.p2Team.map(p => p.data) || pendingP2Team || [];
+        const mode = matchResult?.gameMode || selectionMode || 'ARCADE';
+        if (p1Team.length > 0) {
+            completeCharacterSelection(p1Team, p2Team.length > 0 ? p2Team : null, mode);
+        } else {
+            changeScene(SceneName.STAGE_SELECT);
+        }
     };
 
     const handleMainMenu = () => {
@@ -171,6 +221,18 @@ export const ResultScreen: React.FC = () => {
     const winningCharacterUrl = winningPlayer?.data?.spriteConfig?.animations[animKey]?.imageUrl || 
                                winningPlayer?.data?.spriteConfig?.animations['IDLE']?.imageUrl || 
                                winningPlayer?.data?.portraitUrl;
+
+    const p1Data = gameEngine?.p1Team?.[0]?.data;
+    const p2Data = gameEngine?.p2Team?.[0]?.data;
+
+    const p1Name = matchResult.matchStats?.p1?.name || p1Data?.name || t('result_player_1') || 'JOGADOR 1';
+    const p2Name = matchResult.matchStats?.p2?.name || p2Data?.name || t('result_player_2') || 'JOGADOR 2';
+
+    const p1Portrait = matchResult.matchStats?.p1?.portraitUrl || p1Data?.portraitUrl;
+    const p2Portrait = matchResult.matchStats?.p2?.portraitUrl || p2Data?.portraitUrl;
+
+    const p1Stats = matchResult.matchStats?.p1 || { damageDealt: 0, maxCombo: 0, totalComboHits: 0, specialAttacksUsed: 0, ultimatesUsed: 0, finalHealthPct: 0 };
+    const p2Stats = matchResult.matchStats?.p2 || { damageDealt: 0, maxCombo: 0, totalComboHits: 0, specialAttacksUsed: 0, ultimatesUsed: 0, finalHealthPct: 0 };
 
     return (
         <motion.div 
@@ -260,7 +322,7 @@ export const ResultScreen: React.FC = () => {
                 >
                     <div className="flex items-center mb-2" style={{ gap: s(16) }}>
                         <div className={`${isWinner ? 'bg-orange-400' : 'bg-red-400'}`} style={{ height: s(2), width: s(80) }} />
-                        <span className={`font-bold uppercase ${isWinner ? 'text-orange-300' : 'text-red-300'}`} style={{ fontSize: s(18), tracking: '0.4em' }}>
+                        <span className={`font-bold uppercase ${isWinner ? 'text-orange-300' : 'text-red-300'}`} style={{ fontSize: s(18), letterSpacing: '0.4em' }}>
                             {t('result_match_over') || 'RESULTADO DO COMBATE'}
                         </span>
                         <div className={`${isWinner ? 'bg-orange-400' : 'bg-red-400'}`} style={{ height: s(2), width: s(80) }} />
@@ -299,33 +361,143 @@ export const ResultScreen: React.FC = () => {
                         </h3>
                     </div>
                     
-                    <div className="grid grid-cols-2" style={{ gapX: s(32), gapY: s(24) }}>
-                        <div className="flex flex-col" style={{ gap: s(4) }}>
-                            <span className="text-zinc-500 font-bold tracking-widest uppercase" style={{ fontSize: s(12) }}>{t('result_damage_dealt') || 'DANO CAUSADO'}</span>
-                            <span className={`font-black ${isWinner ? 'text-orange-300' : 'text-red-300'}`} style={{ fontSize: s(24) }}>
-                                {Math.floor(matchResult.matchStats?.p1.damageDealt || 0)}
+                    {/* Player Side-by-Side Comparison Headers */}
+                    <div className="grid grid-cols-2 gap-3 pb-3 mb-3 border-b border-white/10 items-center">
+                        <div className="flex items-center gap-2.5 bg-blue-950/40 border border-blue-500/30 rounded-2xl p-2">
+                            {p1Portrait ? (
+                                <img src={p1Portrait} alt="" className="w-8 h-8 rounded-xl object-cover border border-blue-400/50 bg-black/40 shrink-0" referrerPolicy="no-referrer" />
+                            ) : (
+                                <div className="w-8 h-8 rounded-xl bg-blue-900/50 border border-blue-400/50 flex items-center justify-center font-black text-blue-300 text-xs shrink-0">P1</div>
+                            )}
+                            <div className="flex flex-col min-w-0">
+                                <span className="text-[9px] font-bold tracking-widest text-blue-400 uppercase">P1 / {t('result_player_1') || 'JOGADOR 1'}</span>
+                                <span className="font-black text-white truncate text-xs">{p1Name}</span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 bg-red-950/40 border border-red-500/30 rounded-2xl p-2 justify-end text-right">
+                            <div className="flex flex-col min-w-0">
+                                <span className="text-[9px] font-bold tracking-widest text-red-400 uppercase">P2 / {t('result_player_2') || 'JOGADOR 2'}</span>
+                                <span className="font-black text-white truncate text-xs">{p2Name}</span>
+                            </div>
+                            {p2Portrait ? (
+                                <img src={p2Portrait} alt="" className="w-8 h-8 rounded-xl object-cover border border-red-400/50 bg-black/40 shrink-0" referrerPolicy="no-referrer" />
+                            ) : (
+                                <div className="w-8 h-8 rounded-xl bg-red-900/50 border border-red-400/50 flex items-center justify-center font-black text-red-300 text-xs shrink-0">P2</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Final Health % Bar Comparison */}
+                    <div className="flex flex-col gap-1 bg-black/30 border border-white/5 rounded-2xl p-2.5 mb-3">
+                        <div className="flex justify-between items-center text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                            <span className={`font-black ${p1Stats.finalHealthPct >= p2Stats.finalHealthPct ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                {p1Stats.finalHealthPct}%
+                            </span>
+                            <div className="flex items-center gap-1 text-zinc-300 text-[10px]">
+                                <Heart className="w-3.5 h-3.5 text-red-400 fill-red-400/30" />
+                                <span>{t('result_final_health') || 'VIDA RESTANTE'}</span>
+                            </div>
+                            <span className={`font-black ${p2Stats.finalHealthPct >= p1Stats.finalHealthPct ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                {p2Stats.finalHealthPct}%
                             </span>
                         </div>
-                        <div className="flex flex-col" style={{ gap: s(4) }}>
-                            <span className="text-zinc-500 font-bold tracking-widest uppercase" style={{ fontSize: s(12) }}>{t('result_max_combo') || 'COMBO MÁXIMO'}</span>
-                            <span className={`font-black ${isWinner ? 'text-orange-300' : 'text-red-300'}`} style={{ fontSize: s(24) }}>
-                                {matchResult.matchStats?.p1.maxCombo || 0}
+                        <div className="grid grid-cols-2 gap-2 h-2.5 bg-zinc-900 rounded-full overflow-hidden p-0.5 border border-white/10">
+                            <div className="w-full bg-zinc-800 rounded-full overflow-hidden flex justify-end">
+                                <div 
+                                    className="h-full bg-gradient-to-r from-blue-600 to-emerald-400 rounded-full transition-all duration-1000"
+                                    style={{ width: `${Math.min(100, Math.max(0, p1Stats.finalHealthPct))}%` }}
+                                />
+                            </div>
+                            <div className="w-full bg-zinc-800 rounded-full overflow-hidden flex justify-start">
+                                <div 
+                                    className="h-full bg-gradient-to-r from-emerald-400 to-red-600 rounded-full transition-all duration-1000"
+                                    style={{ width: `${Math.min(100, Math.max(0, p2Stats.finalHealthPct))}%` }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Comparative Stats Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-3">
+                        {/* Dano Causado */}
+                        <div className="flex items-center justify-between bg-black/20 border border-white/5 rounded-xl px-3 py-2">
+                            <span className={`font-black text-base ${p1Stats.damageDealt >= p2Stats.damageDealt ? 'text-orange-400' : 'text-zinc-300'}`}>
+                                {Math.floor(p1Stats.damageDealt)}
+                            </span>
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">{t('result_damage_dealt') || 'DANO CAUSADO'}</span>
+                                <Flame className="w-3.5 h-3.5 text-orange-500 my-0.5" />
+                            </div>
+                            <span className={`font-black text-base ${p2Stats.damageDealt >= p1Stats.damageDealt ? 'text-red-400' : 'text-zinc-300'}`}>
+                                {Math.floor(p2Stats.damageDealt)}
                             </span>
                         </div>
-                        {matchResult.gameMode === 'SURVIVAL' && (
-                            <div className="flex flex-col" style={{ gap: s(4) }}>
-                                <span className="text-amber-500/70 font-bold tracking-widest uppercase" style={{ fontSize: s(12) }}>{t('result_waves_survived') || 'HORDAS'}</span>
-                                <span className="font-black text-amber-400" style={{ fontSize: s(24) }}>
-                                    {isWinner ? matchResult.wave : (matchResult.wave ? matchResult.wave - 1 : 0)}
-                                </span>
+
+                        {/* Combo Máximo */}
+                        <div className="flex items-center justify-between bg-black/20 border border-white/5 rounded-xl px-3 py-2">
+                            <span className={`font-black text-base ${p1Stats.maxCombo >= p2Stats.maxCombo ? 'text-amber-400' : 'text-zinc-300'}`}>
+                                {p1Stats.maxCombo} <span className="text-[10px] text-zinc-500">Hits</span>
+                            </span>
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">{t('result_max_combo') || 'COMBO MÁXIMO'}</span>
+                                <Zap className="w-3.5 h-3.5 text-amber-400 my-0.5" />
+                            </div>
+                            <span className={`font-black text-base ${p2Stats.maxCombo >= p1Stats.maxCombo ? 'text-amber-400' : 'text-zinc-300'}`}>
+                                {p2Stats.maxCombo} <span className="text-[10px] text-zinc-500">Hits</span>
+                            </span>
+                        </div>
+
+                        {/* Hits Totais em Combo */}
+                        <div className="flex items-center justify-between bg-black/20 border border-white/5 rounded-xl px-3 py-2">
+                            <span className={`font-black text-base ${(p1Stats.totalComboHits || 0) >= (p2Stats.totalComboHits || 0) ? 'text-cyan-400' : 'text-zinc-300'}`}>
+                                {p1Stats.totalComboHits || 0}
+                            </span>
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">{t('result_total_combo_hits') || 'HITS TOTAIS'}</span>
+                                <Activity className="w-3.5 h-3.5 text-cyan-400 my-0.5" />
+                            </div>
+                            <span className={`font-black text-base ${(p2Stats.totalComboHits || 0) >= (p1Stats.totalComboHits || 0) ? 'text-cyan-400' : 'text-zinc-300'}`}>
+                                {p2Stats.totalComboHits || 0}
+                            </span>
+                        </div>
+
+                        {/* Ataques Especiais */}
+                        <div className="flex items-center justify-between bg-black/20 border border-white/5 rounded-xl px-3 py-2">
+                            <span className={`font-black text-base ${(p1Stats.specialAttacksUsed || 0) >= (p2Stats.specialAttacksUsed || 0) ? 'text-purple-400' : 'text-zinc-300'}`}>
+                                {p1Stats.specialAttacksUsed || 0}
+                            </span>
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">{t('result_special_attacks') || 'ESPECIAIS'}</span>
+                                <Swords className="w-3.5 h-3.5 text-purple-400 my-0.5" />
+                            </div>
+                            <span className={`font-black text-base ${(p2Stats.specialAttacksUsed || 0) >= (p1Stats.specialAttacksUsed || 0) ? 'text-purple-400' : 'text-zinc-300'}`}>
+                                {p2Stats.specialAttacksUsed || 0}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* General Match Extra Info (Ultimates / Time / Waves) */}
+                    <div className="flex items-center justify-between bg-white/5 rounded-xl px-3 py-1.5 text-[11px] text-zinc-400">
+                        <div className="flex items-center gap-1.5">
+                            <Timer className="w-3.5 h-3.5 text-zinc-300" />
+                            <span className="font-bold text-zinc-300">{t('result_time_remaining') || 'TEMPO'}:</span>
+                            <span className="font-mono font-black text-white">{matchResult.timer}s</span>
+                        </div>
+                        {((p1Stats.ultimatesUsed || 0) > 0 || (p2Stats.ultimatesUsed || 0) > 0) && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-amber-400">{t('result_ultimates_used') || 'SUPER ULTIMATES'}:</span>
+                                <span className="font-black text-blue-300">{p1Stats.ultimatesUsed || 0}</span>
+                                <span>vs</span>
+                                <span className="font-black text-red-300">{p2Stats.ultimatesUsed || 0}</span>
                             </div>
                         )}
-                        <div className="flex flex-col" style={{ gap: s(4) }}>
-                            <span className="text-zinc-500 font-bold tracking-widest uppercase" style={{ fontSize: s(12) }}>{t('result_time_remaining') || 'TEMPO'}</span>
-                            <span className="text-zinc-200 font-black" style={{ fontSize: s(24) }}>
-                                {matchResult.timer}s
-                            </span>
-                        </div>
+                        {matchResult.gameMode === 'SURVIVAL' && (
+                            <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-amber-400">{t('result_waves_survived') || 'HORDAS'}:</span>
+                                <span className="font-black text-amber-300">{isWinner ? matchResult.wave : (matchResult.wave ? matchResult.wave - 1 : 0)}</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Rewards Section inside Stats */}

@@ -123,7 +123,8 @@ export class CollisionHelper {
 
   public static getActualFrameWidth(anim: any, frame: number): number {
     if (!anim) return 0;
-    if (anim.isGif) {
+    const isGifAnim = anim.isGif || (anim.imageUrl && anim.imageUrl.toLowerCase().endsWith('.gif'));
+    if (isGifAnim) {
       const bitmaps = AnimationManager.getInstance()["gifCache"].get(anim.imageUrl);
       if (bitmaps && bitmaps.length > 0) {
         const frameIndex = (anim.loop !== false) 

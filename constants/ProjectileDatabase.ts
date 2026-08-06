@@ -4,11 +4,18 @@ export interface ProjectileFamily {
   id: string;
   name: string;
   color?: string;
+  glowColor?: string;
+  glowBlur?: number;
+  glowRadius?: number;
+  glowIntensity?: number;
   middle: AnimationFrameData;
-  behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT";
+  behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT" | "BOOMERANG";
   maxScale?: number;
 
   // Personalização Visual de projeteis
+  ownerCharacterId?: string;
+  ownerCharacterName?: string;
+  ownerAnimationKey?: string;
   projectileOpacity?: number;
   projectileBrightness?: number;
   projectileHueRotate?: number;
@@ -310,7 +317,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#00d2ff",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/2.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,
@@ -326,7 +333,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#00d2ff",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/3.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,
@@ -358,7 +365,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#00d2ff",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/2/2.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/2/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,
@@ -374,7 +381,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#00d2ff",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/2/3.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/2/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,
@@ -408,7 +415,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#00d2ff",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/3/2.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/3/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,
@@ -586,6 +593,22 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
       "offsetY": 0
     }
   },
+  "BOOMERANG_VEGETA": {
+    "id": "BOOMERANG_VEGETA",
+    "name": "Bumerangue Vegeta",
+    "color": "#eab308",
+    "behavior": "BOOMERANG",
+    "middle": {
+      "imageUrl": "/Assets/especiais/bolasenergia/projeteis/2/1.gif",
+      "frames": 1,
+      "frameWidth": 0,
+      "frameHeight": 0,
+      "speed": 18,
+      "scale": 2.0,
+      "offsetX": 0,
+      "offsetY": 0
+    }
+  },
   "CHAVE_PROJETIL_17": {
     "id": "CHAVE_PROJETIL_17",
     "name": "Projetil 5",
@@ -618,12 +641,18 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
       "frameWidth": 0,
       "frameHeight": 0,
       "speed": 5,
-      "scale": 1.0,
+      "scale": 1,
       "offsetX": 0,
       "offsetY": 0
     },
     "projectileOpacity": 1,
     "projectileBrightness": 1,
+    "projectileHueRotate": 0,
+    "projectileSaturate": 1,
+    "projectileContrast": 1,
+    "glowColor": "#61caff",
+    "glowBlur": 41,
+    "glowIntensity": 1.8
   },
   "CHAVE_GENKIDAMA_4_EXPLODE": {
     "id": "CHAVE_GENKIDAMA_4_EXPLODE",
@@ -631,7 +660,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#ffffff",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/3.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,
@@ -665,7 +694,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#a855f7",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/3/2.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/3/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,
@@ -715,7 +744,7 @@ export const PROJECTILE_DATABASE: Record<string, ProjectileFamily> = {
     "color": "#ffffff",
     "behavior": "TARGET_POS",
     "middle": {
-      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/3/2.gif",
+      "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/3/1.gif",
       "frames": 1,
       "frameWidth": 0,
       "frameHeight": 0,

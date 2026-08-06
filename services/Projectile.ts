@@ -23,6 +23,7 @@ export class Projectile implements Rect {
   private _active: boolean = true;
   public _isForceDeactivated: boolean = false;
   public isShrinking: boolean = false;
+  public _hasTriggeredDispersion: boolean = false;
   public verticalScale: number = 1.0;
   public sourcePlayer?: any;
 
@@ -55,7 +56,7 @@ export class Projectile implements Rect {
   customOffsetY?: number;
   customScale?: number;
   customSpeed?: number;
-  behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT";
+  behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT" | "BOOMERANG";
   initialFacingRight?: boolean;
   targetLocked?: boolean;
   disabledCollision?: boolean;
@@ -112,10 +113,17 @@ export class Projectile implements Rect {
     customOffsetY?: number,
     customScale?: number,
     customSpeed?: number,
-    behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT",
+    behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT" | "BOOMERANG",
     isUltimate: boolean = false
   ): Projectile {
-    let p = this.pool.pop();
+    let p: Projectile | undefined;
+    while (Projectile.pool.length > 0) {
+      const popped = Projectile.pool.pop();
+      if (popped && popped.constructor === Projectile) {
+        p = popped;
+        break;
+      }
+    }
     if (!p) {
       p = new Projectile();
     }
@@ -127,6 +135,7 @@ export class Projectile implements Rect {
     this._active = false;
     this._isForceDeactivated = false;
     this.isShrinking = false;
+    this._hasTriggeredDispersion = false;
     this.disabledCollision = false;
     this.isDeflected = false;
     this.sourcePlayer = undefined;
@@ -144,7 +153,8 @@ export class Projectile implements Rect {
     this.targetLocked = false;
     this["beamClashWin"] = false;
     
-    if (Projectile.pool.length < 100) {
+    // Only pool exact base Projectile instances (NEVER subclasses like Genkidama)
+    if (this.constructor === Projectile && Projectile.pool.length < 100) {
       Projectile.pool.push(this);
     }
   }
@@ -163,7 +173,7 @@ export class Projectile implements Rect {
     customOffsetY?: number,
     customScale?: number,
     customSpeed?: number,
-    behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT",
+    behavior?: "STRAIGHT" | "HOMING" | "TARGET_POS" | "GROWING_STRAIGHT" | "BOOMERANG",
     isUltimate: boolean = false
   ) {
     this.projectileId = Projectile.nextId++;
@@ -179,9 +189,10 @@ export class Projectile implements Rect {
     this.beamFamilyId = beamFamilyId;
     this.isGiantBlast = !!beamFamilyId && (beamFamilyId.includes("GIGANTE") || beamFamilyId.includes("GENKIDAMA"));
     this.isShrinking = false;
+    this._hasTriggeredDispersion = false;
     this._isForceDeactivated = false;
     this.disabledCollision = false;
-    this.verticalScale = 1.0;
+    this.verticalScale = isBeam ? 0.05 : 1.0;
     this.animFrame = 0;
     this.animTimer = 0;
     this.isDeflected = false;
@@ -310,15 +321,53 @@ export class Projectile implements Rect {
     }
   }
 
+  public getBeamColor(): string {
+    if (this.beamFamilyId) {
+      const family = BeamConfigKeyManager.getInstance().getBeamConfig(this.beamFamilyId);
+      const charOverrides =
+        this.sourceAnimConfig?.beamConfig ??
+        this.customAnimData?.beamConfig ??
+        this.sourcePlayer?.data?.beamOverrides?.[this.beamFamilyId];
+
+      const finalFamily = family ? { ...family, ...charOverrides } : charOverrides;
+      const color =
+        finalFamily?.glowColor ||
+        finalFamily?.color;
+
+      if (color && color !== "#ffffff" && color !== "#fff") {
+        return color;
+      }
+    }
+    if (this.color && this.color !== "#ffffff" && this.color !== "#fff") {
+      return this.color;
+    }
+    return "#38bdf8";
+  }
+
   update(engine?: any) {
     if (this.isBeam && !this.isShrinking) {
       if (this.life === undefined || this.life > 90) {
         this.life = 90;
       }
+      if (this.verticalScale < 1.0) {
+        this.verticalScale = Math.min(1.0, this.verticalScale + 0.35); // Fast vertical scale growth on spawn
+      }
     }
 
     if (this.isBeam && this.isShrinking) {
-      this.verticalScale -= 0.15; // Decrement verticalScale to flatten it
+      // Genkidama-style particle dispersion burst when Bean enters dispersion/shrinking
+      if (!this._hasTriggeredDispersion) {
+        this._hasTriggeredDispersion = true;
+        if (engine && engine.particleManager) {
+          const beamColor = this.getBeamColor();
+          const tipPos = this.getTipHitbox();
+          const tipX = tipPos.x + tipPos.width / 2;
+          const tipY = tipPos.y + tipPos.height / 2;
+          engine.particleManager.spawnBeamGenkidamaDispersion(tipX, tipY, 3, beamColor, this.initialFacingRight ?? true);
+        }
+      }
+
+      this.verticalScale -= 0.08; // Decrement verticalScale to disintegrate beam smoothly from tip to origin
       this.disabledCollision = true;
       if (this.verticalScale <= 0) {
         this.verticalScale = 0;
@@ -577,48 +626,28 @@ export class Projectile implements Rect {
           const isTouchingGround = Math.abs(tipY - groundY) < 30;
           const isClashing = engine.isBeamClashActive;
 
-          if (tipX >= 0 && tipX <= (engine.worldWidth || 2000) && isTouchingGround && !isClashing) {
+          if (!this.isBeam && !this.beamFamilyId && tipX >= 0 && tipX <= (engine.worldWidth || 2000) && isTouchingGround && !isClashing) {
             const gem = GroundEnergyManager.getInstance();
             const stageTheme = engine.stageTheme || "TORNEIO_DO_PODER";
             const material = gem.getMaterialConfig(stageTheme);
 
-            // Spawn stones/pebbles at ground level directly under the tip of the beam
-            if (gem.time % 2 === 0) {
-              const forceX = (Math.random() - 0.5) * 6.0;
-              const forceY = -Math.random() * 5.0 - 4.5; // Upward explosive physics launch
+            // Spawn stones/pebbles at ground level directly under the tip of the beam (limited frequency)
+            if (gem.time % 6 === 0) {
+              const forceX = (Math.random() - 0.5) * 4.0;
+              const forceY = -Math.random() * 3.5 - 2.5;
 
               gem.spawnGroundParticle(
-                tipX + (Math.random() - 0.5) * 30, // Random spacing around tip
+                tipX + (Math.random() - 0.5) * 20,
                 groundY - 2,
                 forceX,
                 forceY,
                 'pebble',
                 material.particleColor,
-                120, // maxLife
-                Math.random() < 0.25 ? 'large' : (Math.random() < 0.6 ? 'medium' : 'small'),
+                80,
+                'small',
                 material.debrisGravity,
                 material.bouncinessFactor
               );
-            }
-
-            // Also spawn dust/sand/sparks occasionally at ground level under the tip of the beam
-            if (gem.time % 4 === 0) {
-              for (let j = 0; j < 2; j++) {
-                const dustVx = (Math.random() - 0.5) * 4.0;
-                const dustVy = -Math.random() * 3.0 - 1.0;
-                gem.spawnGroundParticle(
-                  tipX + (Math.random() - 0.5) * 40,
-                  groundY - 1,
-                  dustVx,
-                  dustVy,
-                  material.particleType || 'dust',
-                  material.particleColor,
-                  80,
-                  'small',
-                  material.debrisGravity * 0.5,
-                  material.bouncinessFactor
-                );
-              }
             }
           }
         }
@@ -650,6 +679,32 @@ export class Projectile implements Rect {
           }
           if (this.vy > currentSpeed) this.vy = currentSpeed;
           if (this.vy < -currentSpeed) this.vy = -currentSpeed;
+        } else if (this.behavior === "BOOMERANG") {
+          // Boomerang: Goes forward for some time then returns to owner
+          const maxLife = 60; // Total duration
+          const returnStart = 25; // When it starts returning
+          
+          if (!this.life) this.life = maxLife;
+          
+          const currentLife = maxLife - this.life;
+          const owner = this.sourcePlayer || (this.ownerId === "p1" ? engine.player1 : engine.player2);
+          
+          if (currentLife < returnStart) {
+            // Going forward - already handled by vx
+          } else {
+            // Returning to owner
+            const dx = (owner.x + owner.width / 2) - (this.x + this.width / 2);
+            const dy = (owner.y + owner.height / 2) - (this.y + this.height / 2);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 10) {
+              const speed = currentSpeed * 1.5;
+              this.vx = (dx / dist) * speed;
+              this.vy = (dy / dist) * speed;
+            } else {
+              this.active = false; // Returned!
+            }
+          }
         } else if (this.behavior === "GROWING_STRAIGHT") {
           // Aumenta escala no decorrer do tempo até Max 2.0 ou maxScale
           if (this.customScale === undefined) {

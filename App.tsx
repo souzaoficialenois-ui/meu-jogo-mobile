@@ -1,6 +1,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
+import { StatusBar } from '@capacitor/status-bar';
+import { NavigationBar } from '@capawesome/capacitor-navigation-bar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { SceneProvider, useSceneManager } from './contexts/SceneContext';
 import { MainMenuScreen } from './components/screens/MainMenuScreen';
 import { CharacterSelectScreen } from './components/screens/CharacterSelectScreen';
@@ -47,6 +50,7 @@ import { OnlineService, OnlineStatus } from './services/OnlineService';
 import { Shield } from 'lucide-react';
 import { AnimationPreviewScreen } from './components/screens/AnimationPreviewScreen';
 import { HallOfFameScreen } from './components/screens/HallOfFameScreen';
+import { TitlesGalleryScreen } from './components/screens/TitlesGalleryScreen';
 import { GamepadNavigationManager } from './services/GamepadNavigationManager';
 import { UIManager } from './services/UIManager';
 import { PlayerProfileModal } from './components/social/PlayerProfileModal';
@@ -58,11 +62,16 @@ import { StrictVersionBlockScreen } from './components/screens/StrictVersionBloc
 import { NetworkManager } from './services/NetworkManager';
 import { ReconnectionScreen } from './components/screens/ReconnectionScreen';
 import { UIProvider } from './contexts/UIContext';
+import { SceneLoadingOverlay } from './components/screens/SceneLoadingOverlay';
+import { TouchEffectOverlay } from './components/ui/TouchEffectOverlay';
 
 const SceneContainer: React.FC = () => {
   const { 
     currentScene, 
     changeScene, 
+    isSceneLoading,
+    loadingSceneTarget,
+    handleTransitionComplete,
     currentUser, 
     playerProfile,
     showProfileId, 
@@ -268,14 +277,14 @@ const SceneContainer: React.FC = () => {
       case SceneName.RESOURCE_DOWNLOAD: return <ResourceDownloadScreen />;
       case SceneName.PRELOAD: return <PreloadScreen />;
       case SceneName.SPLASH_SCREEN: return <SplashScreen />;
-      case SceneName.RESULTS: return <ResultScreen />;
+      case SceneName.RESULTS: return <BattleScreen />;
       case SceneName.AUTH: return <AuthScreen />;
       case SceneName.NETWORK_SELECT: return <NetworkSelectScreen />;
       case SceneName.PROFILE_CREATION: return <ProfileCreationScreen />;
       case SceneName.PROFILE_EDIT: return <ProfileEditScreen />;
       case SceneName.MESSAGES: return <MessagesScreen />;
       case SceneName.MAIN_MENU: return <MainMenuScreen />;
-      case SceneName.SINGLE_PLAYER_MENU: return <ModeSelectionScreen />;
+      case SceneName.SINGLE_PLAYER_MENU: return <MainMenuScreen />;
       case SceneName.CHARACTER_SELECT: return <CharacterSelectScreen />;
       case SceneName.VS_SCREEN: return <VsScreen />;
       case SceneName.MULTIPLAYER: return <MultiplayerScreen />;
@@ -302,6 +311,7 @@ const SceneContainer: React.FC = () => {
       case SceneName.CREDITS: return <CreditsScreen />;
       case SceneName.HALL_OF_FAME: return <HallOfFameScreen />;
       case SceneName.WAREHOUSE: return <WarehouseScreen />;
+      case SceneName.TITLES_GALLERY: return <TitlesGalleryScreen />;
       default: return <MainMenuScreen />;
     }
   };
@@ -375,7 +385,7 @@ const SceneContainer: React.FC = () => {
                 className="w-10 h-10 rounded-lg border border-orange-500 hover:border-orange-400 bg-stone-900 overflow-hidden shrink-0 cursor-pointer hover:scale-105 transition-transform"
               >
                 <img 
-                  src={AVATAR_LIST.find(a => a.id === activeInvite.hostAvatar)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                  src={AVATAR_LIST.find(a => a.id === activeInvite.hostAvatar)?.url || "/Assets/avatar/retrato/1.png"} 
                   className="w-full h-full object-cover" 
                   alt="" 
                 />
@@ -422,8 +432,19 @@ const SceneContainer: React.FC = () => {
           />
         )}
       </AnimatePresence>
+
+      {/* Full-screen Loading Overlay for every screen transition */}
+      <AnimatePresence>
+        {isSceneLoading && loadingSceneTarget && (
+          <SceneLoadingOverlay
+            targetScene={loadingSceneTarget}
+            onComplete={handleTransitionComplete}
+          />
+        )}
+      </AnimatePresence>
       
       <GlobalChatOverlay />
+      <TouchEffectOverlay />
     </div>
   );
 };
@@ -432,6 +453,8 @@ const App: React.FC = () => {
   useEffect(() => {
     const travarTelaDeitada = async () => {
       try {
+        await StatusBar.hide();
+        await NavigationBar.hide();
         await ScreenOrientation.lock({ orientation: 'landscape' });
       } catch (e) {
         console.log('Não está rodando no celular ou o plugin não carregou:', e);
@@ -459,6 +482,14 @@ const App: React.FC = () => {
 
   const handleInteraction = async () => {
     try {
+      // Hide bars for mobile (APK/Capacitor)
+      try {
+        await StatusBar.hide();
+        await NavigationBar.hide();
+      } catch (e) {
+        // Not on mobile or plugin failed
+      }
+
       if (document.fullscreenEnabled && !document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
       }
@@ -473,21 +504,23 @@ const App: React.FC = () => {
   };
 
   return (
-    <UIProvider>
-      <div className="fixed inset-0 bg-black flex items-center justify-center overflow-hidden w-screen h-[100dvh]">
-        <div 
-          className="relative overflow-hidden bg-[#050608] text-slate-100 font-sans selection:bg-dragon-orange selection:text-white w-full h-full"
-          onClick={handleInteraction}
-          onTouchStart={handleInteraction}
-        >
-          <div className="absolute inset-0 pointer-events-none z-[100]" />
-          
-          <SceneProvider>
-            <SceneContainer />
-          </SceneProvider>
+    <ErrorBoundary>
+      <UIProvider>
+        <div className="fixed inset-0 bg-stone-950 flex items-center justify-center overflow-hidden w-full h-full">
+          <div 
+            className="relative overflow-hidden bg-[#050608] text-slate-100 font-sans selection:bg-dragon-orange selection:text-white w-full h-full"
+            onClick={handleInteraction}
+            onTouchStart={handleInteraction}
+          >
+            <SceneProvider>
+              <ErrorBoundary>
+                <SceneContainer />
+              </ErrorBoundary>
+            </SceneProvider>
+          </div>
         </div>
-      </div>
-    </UIProvider>
+      </UIProvider>
+    </ErrorBoundary>
   );
 };
 

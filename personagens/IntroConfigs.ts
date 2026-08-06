@@ -26,8 +26,8 @@ export interface CharacterIntroConfig {
 }
 
 const createSequentialIntro = (maxPhases: number): CharacterIntroConfig => ({
-  maxTime: 600,
-  isCustomComplete: (player: any) => player.ultPhase === maxPhases && player.animFinished,
+  maxTime: Math.max(600, maxPhases * 150),
+  isCustomComplete: (player: any) => player.ultPhase >= maxPhases && player.animFinished,
   update: ({ worldWidth, groundY, isPlayer1, player }: IntroContext) => {
     const offsetMultiplier = isPlayer1 ? -1 : 1;
     player.pos.x = worldWidth / 2 + SPAWN_CENTER_OFFSET * offsetMultiplier;
@@ -37,6 +37,9 @@ const createSequentialIntro = (maxPhases: number): CharacterIntroConfig => ({
     if (player.animFinished && player.ultPhase < maxPhases) {
       player.ultPhase++;
       player.animFinished = false;
+      player.lastAnimKey = "";
+      player.animFrame = 0;
+      player.animTimer = 0;
     }
   }
 });
@@ -319,9 +322,7 @@ export const CHARACTER_INTROS: Record<string, CharacterIntroConfig> = {
         if (!player.introKiChargeVoicePlayed) {
           player.introKiChargeVoicePlayed = true;
           try {
-            VoiceManager.getInstance().playVoice(
-              "/Assets/SONS/EFEITOS/CARREGANDO%20KI/INICIO.m4a"
-            );
+            AudioManager.getInstance().playSFX("charge");
           } catch (err) {
             console.error("Failed to play Goku Blue intro charging voice:", err);
           }
@@ -383,9 +384,8 @@ export const CHARACTER_INTROS: Record<string, CharacterIntroConfig> = {
         const activeLang = ManifestManager.getActiveLanguage() || "pt_br";
         const isVoicePackInstalled = ManifestManager.isPackInstalled(activeLang);
 
-        // Wait for the Phase 1 TRANSFORMAÇÃO voice to finish playing before proceeding to Phase 3
-        const mainVoiceUrl = "/Assets/SONS/EFEITOS/CARREGANDO%20KI/INICIO.m4a";
-        const isMainVoicePlaying = VoiceManager.getInstance().isVoicePlaying(mainVoiceUrl);
+        // Wait for the Phase 1 voice to finish playing before proceeding to Phase 3
+        const isMainVoicePlaying = false;
 
         if (isMainVoicePlaying) {
           // Keep looping Phase 2 animation and do not advance yet
@@ -524,7 +524,12 @@ export const CHARACTER_INTROS: Record<string, CharacterIntroConfig> = {
       if (player.animFinished && player.ultPhase < 5) {
         player.ultPhase++;
         player.animFinished = false;
+        player.lastAnimKey = "";
+        player.animFrame = 0;
+        player.animTimer = 0;
       }
     }
   }
 };
+
+CHARACTER_INTROS["goku_blue"] = CHARACTER_INTROS["goku_blue_gif"];

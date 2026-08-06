@@ -10,7 +10,7 @@ const URLS = {
   carregando_ki_2: "/Assets/personagens/gokubase/carregando_ki_1_2.gif",
   carregando_ki_3: "/Assets/personagens/gokubase/carregando_ki_1_3.gif",
 
-  // Novas Animações de Dano e Hits
+  // Animações de Dano e Hits
   hit_light: "/Assets/personagens/gokubase/hit_light.gif",
   hit_medium: "/Assets/personagens/gokubase/hit_medium.gif",
   hit_heavy: "/Assets/personagens/gokubase/hit_heavy.gif",
@@ -114,7 +114,7 @@ const URLS = {
   transformacao_ssj_1_1: "/Assets/personagens/gokubase/transformacao_ssj_1_1.gif",
   transformacao_ssj_1_2: "/Assets/personagens/gokubase/transformacao_ssj_1_2.gif",
   tras: "/Assets/personagens/gokubase/tras.gif",
-  air_dash_knee: "/Assets/personagens/gokubase/air_dash_knee.gif",
+  air_dash_knee: "/Assets/personagens/gokubase/air_medium_foward_1.gif",
   ultimate_1_1: "/Assets/personagens/gokubase/ultimate_1_1.gif",
   ultimate_1_2: "/Assets/personagens/gokubase/ultimate_1_2.gif",
   ultimate_1_3: "/Assets/personagens/gokubase/ultimate_1_3.gif",
@@ -377,7 +377,42 @@ export const GokuBase: CharacterData = {
         "zoomAmount": 1.5
       },
 
-      [PlayerState.IDLE]: createGifAnim(URLS.parado, true),
+      parado: {
+        "imageUrl": "/Assets/personagens/gokubase/parado.gif",
+        "frames": 1,
+        "frameWidth": 0,
+        "frameHeight": 0,
+        "isGif": true,
+        "speed": 5,
+        "loop": true,
+        "scale": 2.2,
+        "offsetX": 0,
+        "offsetY": 0,
+        "createsProjectile": "CHAVE_GENKIDAMA_4",
+        "projectileScale": 1,
+        "specialAnim": "genkidama_throw"
+      },
+      GENKIDAMA: {
+        "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/1.gif",
+        "frames": 1,
+        "frameWidth": 0,
+        "frameHeight": 0,
+        "isGif": true,
+        "speed": 5,
+        "loop": true,
+        "projectileId": "CHAVE_GENKIDAMA_4"
+      },
+      GENKIDAMA_FINAL: {
+        "imageUrl": "/Assets/especiais/bolasenergia/genkidamas/1/3.gif",
+        "frames": 1,
+        "frameWidth": 0,
+        "frameHeight": 0,
+        "isGif": true,
+        "speed": 5,
+        "loop": false,
+        "projectileId": "CHAVE_GENKIDAMA_4"
+      },
+
       [PlayerState.RUNNING]: createGifAnim(URLS.frente, true),
       [PlayerState.WALK_BACKWARD]: createGifAnim(URLS.tras, true),
       [PlayerState.DASH_START]: createGifAnim(URLS.super_dash_1, false),
@@ -421,13 +456,13 @@ export const GokuBase: CharacterData = {
       GET_UP_AIR: createGifAnim(URLS.hit_air, false, 8),
 
       // Ataques Básicos
-      [PlayerState.ATTACKING]: createGifAnim(URLS.stand_light_1, false, 15),
-      ATTACK_LIGHT_1: createGifAnim(URLS.stand_light_1, false, 15),
-      ATTACK_LIGHT_2: createGifAnim(URLS.stand_light_2, false, 15),
-      ATTACK_LIGHT_3: createGifAnim(URLS.stand_light_3, false, 15),
-      STAND_LIGHT_1: createGifAnim(URLS.stand_light_1, false, 15),
-      STAND_LIGHT_2: createGifAnim(URLS.stand_light_2, false, 15),
-      STAND_LIGHT_3: createGifAnim(URLS.stand_light_3, false, 15),
+      [PlayerState.ATTACKING]: createGifAnim(URLS.stand_light_1, false, 5),
+      ATTACK_LIGHT_1: createGifAnim(URLS.stand_light_1, false, 5),
+      ATTACK_LIGHT_2: createGifAnim(URLS.stand_light_2, false, 5),
+      ATTACK_LIGHT_3: createGifAnim(URLS.stand_light_3, false, 5),
+      STAND_LIGHT_1: createGifAnim(URLS.stand_light_1, false, 5),
+      STAND_LIGHT_2: createGifAnim(URLS.stand_light_2, false, 5),
+      STAND_LIGHT_3: createGifAnim(URLS.stand_light_3, false, 5),
 
       ATTACK_MEDIUM_1: createGifAnim(URLS.stand_medium_1, false, 12),
       STAND_MEDIUM_1: createGifAnim(URLS.stand_medium_1, false, 12),
@@ -474,17 +509,17 @@ export const GokuBase: CharacterData = {
 
       [PlayerState.CHARGE_START]: createGifAnim(URLS.carregando_ki_1, false),
       [PlayerState.CHARGING]: {
-        imageUrl: URLS.carregando_ki_2,
-        frames: 2,
-        frameWidth: 32,
-        frameHeight: 46,
-        isGif: true,
-        speed: 5,
-        loop: true,
-        scale: 2.2,
-        offsetX: 0,
-        offsetY: 0,
-        auraConfigKey: "CHAVE_AURA_001"
+        "imageUrl": "/Assets/personagens/gokubase/carregando_ki_1_2.gif",
+        "frames": 2,
+        "frameWidth": 32,
+        "frameHeight": 46,
+        "isGif": true,
+        "speed": 5,
+        "loop": true,
+        "scale": 2.2,
+        "offsetX": 0,
+        "offsetY": 0,
+        "auraConfigKey": "CHAVE_AURA_001"
       },
       [PlayerState.CHARGE_END]: createGifAnim(URLS.carregando_ki_3, false),
 
@@ -537,25 +572,46 @@ export const GokuBase: CharacterData = {
       KI_BLAST_AR_4: createGifAnim(URLS.especial_kiblast_ar_1_4, false),
 
       Especial_1_1: createGifAnim(URLS.especial_1_1, false),
+      SPECIAL_1_1: createGifAnim(URLS.especial_1_1, false),
       Especial_1_2: {
-        ...createGifAnim(URLS.especial_1_2, false),
+        ...createGifAnim(URLS.especial_1_2, false, 5),
         createsBeam: "CHAVE_BEAM_002",
-        effectConfigKey: "CHAVE_EFFECT_TELACHEIA_05_AZUL"
+        effectConfigKey: "CHAVE_EFFECT_TELACHEIA_05_AZUL",
+        offsetX: 0,
+        offsetY: 0
+      },
+      SPECIAL_1_2: {
+        ...createGifAnim(URLS.especial_1_2, false, 5),
+        createsBeam: "CHAVE_BEAM_002",
+        effectConfigKey: "CHAVE_EFFECT_TELACHEIA_05_AZUL",
+        offsetX: 0,
+        offsetY: 0
       },
 
       Especial_2_1: createGifAnim(URLS.especial_2_1, false),
+      SPECIAL_2_1: createGifAnim(URLS.especial_2_1, false),
       Especial_2_2: createGifAnim(URLS.especial_2_2, false),
+      SPECIAL_2_2: createGifAnim(URLS.especial_2_2, false),
       Especial_2_3: createGifAnim(URLS.especial_2_3, false),
+      SPECIAL_2_3: createGifAnim(URLS.especial_2_3, false),
       Especial_2_4: createGifAnim(URLS.especial_2_4, false),
+      SPECIAL_2_4: createGifAnim(URLS.especial_2_4, false),
 
       Especial_3_1: createGifAnim(URLS.especial_3_1, false),
+      SPECIAL_3_1: createGifAnim(URLS.especial_3_1, false),
       Especial_3_2: createGifAnim(URLS.especial_3_2, false),
+      SPECIAL_3_2: createGifAnim(URLS.especial_3_2, false),
       Especial_3_3: createGifAnim(URLS.especial_3_3, false),
+      SPECIAL_3_3: createGifAnim(URLS.especial_3_3, false),
 
       Especial_4_1: createGifAnim(URLS.especial_4_1, false),
+      SPECIAL_4_1: createGifAnim(URLS.especial_4_1, false),
       Especial_4_2: createGifAnim(URLS.especial_4_2, false),
+      SPECIAL_4_2: createGifAnim(URLS.especial_4_2, false),
       Especial_4_3: createGifAnim(URLS.especial_4_3, false),
+      SPECIAL_4_3: createGifAnim(URLS.especial_4_3, false),
       Especial_4_4: createGifAnim(URLS.especial_4_4, false),
+      SPECIAL_4_4: createGifAnim(URLS.especial_4_4, false),
 
       ULTIMATE_1_1: {
         "imageUrl": "/Assets/personagens/gokubase/ultimate_1_1.gif",
@@ -657,9 +713,9 @@ export const GokuBase: CharacterData = {
         "isGif": true,
         "speed": 5,
         "loop": false,
-        "scale": 0.49999999999999933,
-        "offsetX": 4,
-        "offsetY": 20,
+        "scale": 2.2,
+        "offsetX": 0,
+        "offsetY": 0,
         "zoomType": "IMMEDIATE",
         "zoomAmount": 1.5,
         "fullScreen": true
@@ -673,9 +729,9 @@ export const GokuBase: CharacterData = {
         "isGif": true,
         "speed": 5,
         "loop": false,
-        "scale": 0.49999999999999933,
-        "offsetX": -15,
-        "offsetY": 20,
+        "scale": 2.2,
+        "offsetX": 0,
+        "offsetY": 0,
         "fullScreen": true,
         "zoomType": "IMMEDIATE",
         "zoomAmount": 1.5
@@ -692,10 +748,12 @@ export const GokuBase: CharacterData = {
       },
 
       [PlayerState.STANDBY]: createGifAnim(URLS.parado, true),
-      [PlayerState.TAG_IN]: createGifAnim(URLS.parado, true),
+      TAG_IN_KO: createGifAnim(URLS.entrada_por_ko, false),
+      [PlayerState.TAG_IN]: createGifAnim(URLS.entrada_por_ko, false),
       [PlayerState.TAG_OUT]: createGifAnim(URLS.parado, false),
       [PlayerState.ASSIST_ENTRY]: createGifAnim(URLS.parado, false),
       [PlayerState.ASSIST_EXIT]: createGifAnim(URLS.parado, false),
+      ENTRY_BY_KO: createGifAnim(URLS.entrada_por_ko, false),
 
       [PlayerState.TRANSFORM]: createGifAnim(URLS.transformacao_ssj_1_1, false),
       [PlayerState.VICTORY]: createGifAnim(URLS.parado, false),
@@ -707,10 +765,9 @@ export const GokuBase: CharacterData = {
         phases: [
             {
                 animation: 'ATTACK_LIGHT_1',
-                duration: 18,
                 hitboxActive: true,
-                hitboxStartFrame: 2,
-                hitboxEndFrame: 12,
+                hitboxStartFrame: 1,
+                hitboxEndFrame: 15,
                 damage: 5,
                 sfxName: 'attack_light',
                 sfxFrame: 2,
@@ -723,10 +780,9 @@ export const GokuBase: CharacterData = {
         phases: [
             {
                 animation: 'ATTACK_LIGHT_2',
-                duration: 18,
                 hitboxActive: true,
-                hitboxStartFrame: 2,
-                hitboxEndFrame: 12,
+                hitboxStartFrame: 1,
+                hitboxEndFrame: 20,
                 damage: 5,
                 sfxName: 'attack_light',
                 sfxFrame: 2,
@@ -739,10 +795,9 @@ export const GokuBase: CharacterData = {
         phases: [
             {
                 animation: 'ATTACK_LIGHT_3',
-                duration: 22,
                 hitboxActive: true,
                 hitboxStartFrame: 2,
-                hitboxEndFrame: 15,
+                hitboxEndFrame: 35,
                 damage: 8,
                 sfxName: 'attack',
                 sfxFrame: 2,

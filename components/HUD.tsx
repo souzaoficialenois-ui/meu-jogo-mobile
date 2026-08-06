@@ -179,25 +179,43 @@ const HealthBar = ({
     const pct = safeCurrent > 0 ? Math.max(1, Math.min(100, (safeCurrent / safeMax) * 100)) : 0;
     const [visualPct, setVisualPct] = useState(pct);
     const [isHit, setIsHit] = useState(false);
+    const [isCritical, setIsCritical] = useState(false);
+    const [flashType, setFlashType] = useState<'none' | 'normal' | 'critical'>('none');
+    const [hitCount, setHitCount] = useState(0);
     const prevHpRef = useRef(safeCurrent);
 
     useEffect(() => {
         if (safeCurrent < prevHpRef.current) {
+            const damage = prevHpRef.current - safeCurrent;
+            const damagePct = (damage / safeMax) * 100;
+            // Critical hit if single hit >= 3.5% of max HP, >= 50 HP, or taking damage while low HP (<20%)
+            const critical = damagePct >= 3.5 || damage >= 50 || (safeCurrent < safeMax * 0.20 && damage > 0);
+
             setIsHit(true);
-            const hitTimer = setTimeout(() => setIsHit(false), 300);
+            setIsCritical(critical);
+            setFlashType(critical ? 'critical' : 'normal');
+            setHitCount(prev => prev + 1);
+
+            const timerDuration = critical ? 550 : 320;
+            const hitTimer = setTimeout(() => {
+                setIsHit(false);
+                setIsCritical(false);
+                setFlashType('none');
+            }, timerDuration);
+
             return () => clearTimeout(hitTimer);
         }
         prevHpRef.current = safeCurrent;
-    }, [safeCurrent]);
+    }, [safeCurrent, safeMax]);
 
     useEffect(() => {
         if (pct < visualPct) {
-            const t = setTimeout(() => setVisualPct(pct), 600);
+            const t = setTimeout(() => setVisualPct(pct), isCritical ? 800 : 600);
             return () => clearTimeout(t);
         } else if (pct > visualPct) {
             setVisualPct(pct);
         }
-    }, [pct, visualPct]);
+    }, [pct, visualPct, isCritical]);
 
     let barColor = "from-emerald-400 via-emerald-500 to-emerald-600";
     if (pct < 50) barColor = "from-amber-400 via-amber-500 to-amber-600";
@@ -208,41 +226,147 @@ const HealthBar = ({
 
     const { s } = useUI();
 
+    // Critical Shake motion physics
+    const shakeAnimation = isCritical ? {
+        x: isLeft ? [-14, 14, -10, 10, -6, 6, -3, 3, 0] : [14, -14, 10, -10, 6, -6, 3, -3, 0],
+        y: [-5, 5, -4, 4, -2, 2, -1, 1, 0],
+        rotate: isLeft ? [-2.5, 2.5, -1.5, 1.5, -0.8, 0] : [2.5, -2.5, 1.5, -1.5, 0.8, 0],
+        scale: [1, 1.08, 0.95, 1.04, 0.98, 1],
+        filter: ["brightness(1)", "brightness(2.6) contrast(1.4)", "brightness(1.8)", "brightness(1.2)", "brightness(1)"]
+    } : isHit ? {
+        x: isLeft ? [-6, 6, -4, 4, -2, 0] : [6, -6, 4, -4, 2, 0],
+        y: [-2, 2, -1, 1, 0],
+        scale: [1, 1.03, 0.98, 1],
+        filter: ["brightness(1)", "brightness(1.6)", "brightness(1)"]
+    } : {
+        x: 0,
+        y: 0,
+        rotate: 0,
+        scale: 1,
+        filter: "brightness(1)"
+    };
+
     return (
         <motion.div 
-            className="w-full"
+            key={`hp-container-${hitCount}`}
+            className="w-full relative"
             style={{ gap: `${s(10)}px`, display: 'flex', flexDirection: 'column' }}
-            animate={isHit ? { x: isLeft ? [-5, 5, -5, 0] : [5, -5, 5, 0], filter: "brightness(1.5)" } : { x: 0, filter: "brightness(1)" }}
-            transition={{ duration: 0.3 }}
+            animate={shakeAnimation}
+            transition={{ duration: isCritical ? 0.5 : 0.3, ease: "easeOut" }}
         >
-            {/* Main Health Bar */}
+            {/* Floating Critical Hit Badge */}
+            <AnimatePresence>
+                {isCritical && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.4, y: 10 }}
+                        animate={{ 
+                            opacity: [0, 1, 1, 0], 
+                            scale: [0.4, 1.3, 1.1, 0.9], 
+                            y: [10, -14, -20, -28] 
+                        }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.65, ease: "easeOut" }}
+                        className={`absolute z-40 pointer-events-none top-[-22px] ${isLeft ? 'left-4' : 'right-4'}`}
+                    >
+                        <span className="font-black italic uppercase text-red-400 drop-shadow-[0_0_12px_rgba(239,68,68,1)] tracking-widest text-[11px] sm:text-[13px] bg-stone-950/90 px-2.5 py-0.5 rounded-md border border-red-500/80">
+                            CRITICAL HIT!
+                        </span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Main Health Bar Container */}
             <div 
-                className={`relative w-full bg-slate-900 border-[3px] md:border-[4px] overflow-hidden ${skew}  transition-colors duration-300 ${pct < 25 ? 'border-red-500 ' : 'border-white/20'}`}
+                className={`relative w-full bg-slate-900 border-[3px] md:border-[4px] overflow-hidden ${skew} transition-colors duration-200 ${
+                    isCritical 
+                        ? 'border-red-400 shadow-[0_0_30px_rgba(239,68,68,0.95)] scale-[1.02]' 
+                        : isHit 
+                        ? 'border-yellow-300 shadow-[0_0_18px_rgba(253,224,71,0.7)]' 
+                        : pct < 25 
+                        ? 'border-red-500 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.5)]' 
+                        : 'border-white/20'
+                }`}
                 style={{ height: `${s(32)}px` }}
             >
                 {/* Background Pattern */}
                 <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]" />
 
-                {/* Damage Catch-up */}
+                {/* Damage Catch-up (Red Trailing Bar) */}
                 <motion.div 
-                    className={`absolute inset-y-0 bg-red-500/80 ${isLeft ? 'right-0' : 'left-0'}`}
+                    className={`absolute inset-y-0 ${isCritical ? 'bg-red-600/90' : 'bg-red-500/80'} ${isLeft ? 'right-0' : 'left-0'}`}
                     animate={{ width: `${visualPct}%` }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
+                    transition={{ duration: isCritical ? 0.9 : 0.7, ease: "easeOut" }}
                 />
                 
-                {/* Actual Health */}
+                {/* Actual Current Health Bar */}
                 <motion.div 
                     className={`absolute inset-y-0 bg-gradient-to-r ${barColor} ${isLeft ? 'right-0' : 'left-0'} ${pct < 25 ? 'animate-pulse' : ''}`}
                     animate={{ width: `${pct}%` }}
-                    transition={{ type: "tween", ease: "easeOut", duration: 0.3 }}
+                    transition={{ type: "tween", ease: "easeOut", duration: 0.25 }}
                 >
                     <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.4)_50%,transparent_75%)] bg-[length:250%_250%] animate-[shimmer_2s_infinite]"></div>
                     {/* Energy glow on tip */}
                     <div 
-                        className={`absolute top-0 bottom-0 bg-white/50 blur-[4px] ${isLeft ? 'left-0' : 'right-0'}`} 
+                        className={`absolute top-0 bottom-0 bg-white/60 blur-[4px] ${isLeft ? 'left-0' : 'right-0'}`} 
                         style={{ width: `${s(12)}px` }}
                     />
                 </motion.div>
+
+                {/* Impact Spark Flare burst on hit position */}
+                <AnimatePresence>
+                    {(isHit || isCritical) && (
+                        <motion.div
+                            key={`impact-flare-${hitCount}`}
+                            initial={{ scale: 0.5, opacity: 1 }}
+                            animate={{ scale: isCritical ? 2.8 : 1.8, opacity: [1, 0.8, 0] }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: isCritical ? 0.45 : 0.3, ease: "easeOut" }}
+                            className={`absolute top-0 bottom-0 pointer-events-none z-20 ${
+                                isCritical 
+                                    ? 'bg-gradient-to-r from-yellow-100 via-white to-red-500 blur-[2px] shadow-[0_0_25px_#fff,0_0_40px_#ef4444]' 
+                                    : 'bg-white blur-[2px] shadow-[0_0_15px_#fff]'
+                            }`}
+                            style={{
+                                width: `${s(isCritical ? 20 : 12)}px`,
+                                [isLeft ? 'right' : 'left']: `${pct}%`,
+                                transform: 'translateX(-50%)'
+                            }}
+                        />
+                    )}
+                </AnimatePresence>
+
+                {/* Flash Overlay Effects */}
+                <AnimatePresence>
+                    {flashType === 'critical' && (
+                        <motion.div
+                            key={`flash-crit-${hitCount}`}
+                            initial={{ opacity: 1 }}
+                            animate={{ 
+                                opacity: [1, 0.85, 1, 0.3, 0],
+                                backgroundColor: [
+                                    "rgba(255, 255, 255, 0.95)",
+                                    "rgba(239, 68, 68, 0.85)",
+                                    "rgba(254, 240, 138, 0.9)",
+                                    "rgba(239, 68, 68, 0.3)",
+                                    "rgba(0, 0, 0, 0)"
+                                ]
+                            }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.5, times: [0, 0.25, 0.5, 0.75, 1] }}
+                            className="absolute inset-0 z-30 pointer-events-none mix-blend-overlay border-2 border-white/90 shadow-[inset_0_0_25px_rgba(255,255,255,1)]"
+                        />
+                    )}
+                    {flashType === 'normal' && (
+                        <motion.div
+                            key={`flash-norm-${hitCount}`}
+                            initial={{ opacity: 0.8 }}
+                            animate={{ opacity: 0 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.28 }}
+                            className="absolute inset-0 z-30 pointer-events-none bg-white/70 mix-blend-overlay"
+                        />
+                    )}
+                </AnimatePresence>
                 
                 {/* Glossy Overlay */}
                 <div className="absolute inset-0 bg-gradient-to-b from-white/40 via-transparent to-black/40 pointer-events-none"></div>
@@ -275,6 +399,10 @@ const KiBar = ({ ki, maxKi, isLeft }: { ki: number, maxKi: number, isLeft: boole
     const prevBarsRef = useRef(bars);
     const [justLeveledUp, setJustLeveledUp] = useState(false);
     const [justDeflected, setJustDeflected] = useState(false);
+    const [isCharging, setIsCharging] = useState(false);
+    const [isSpending, setIsSpending] = useState(false);
+    const [visualKi, setVisualKi] = useState(safeKi);
+    const [flareCount, setFlareCount] = useState(0);
     const prevKiRef = useRef(safeKi);
     
     // When fully maxed out, display 100% full instead of 0% on the next bar
@@ -299,19 +427,46 @@ const KiBar = ({ ki, maxKi, isLeft }: { ki: number, maxKi: number, isLeft: boole
             const t = setTimeout(() => setJustDeflected(false), 800);
             return () => clearTimeout(t);
         }
+
+        if (safeKi > prevKiRef.current + 2) {
+            setIsCharging(true);
+            const t = setTimeout(() => setIsCharging(false), 300);
+            return () => clearTimeout(t);
+        } else if (safeKi < prevKiRef.current - 5) {
+            setIsSpending(true);
+            setFlareCount(prev => prev + 1);
+            const t = setTimeout(() => setIsSpending(false), 450);
+            return () => clearTimeout(t);
+        }
         prevKiRef.current = safeKi;
     }, [safeKi]);
-    
+
+    useEffect(() => {
+        if (safeKi < visualKi) {
+            const t = setTimeout(() => setVisualKi(safeKi), 550);
+            return () => clearTimeout(t);
+        } else {
+            setVisualKi(safeKi);
+        }
+    }, [safeKi, visualKi]);
+
+    let visualBars = Math.floor(visualKi / 100);
+    let visualPct = (visualKi % 100);
+    if (visualKi > 0 && visualKi === safeMaxKi) {
+        visualBars = Math.floor(safeMaxKi / 100);
+        visualPct = 100;
+    }
+
     const getKiColors = (b: number) => {
         switch(b) {
-            case 0: return { from: '#38bdf8', to: '#0284c7' }; // sky
-            case 1: return { from: '#ef4444', to: '#b91c1c' }; // red
-            case 2: return { from: '#facc15', to: '#ca8a04' }; // yellow
-            case 3: return { from: '#22c55e', to: '#15803d' }; // green
-            case 4: return { from: '#a855f7', to: '#7e22ce' }; // purple
-            case 5: return { from: '#ec4899', to: '#be185d' }; // pink
-            case 6: return { from: '#f97316', to: '#c2410c' }; // orange
-            default: return { from: '#f1f5f9', to: '#ffffff' }; // slate/white
+            case 0: return { from: '#38bdf8', via: '#0284c7', to: '#0369a1' }; // sky
+            case 1: return { from: '#ef4444', via: '#dc2626', to: '#b91c1c' }; // red
+            case 2: return { from: '#facc15', via: '#eab308', to: '#ca8a04' }; // yellow
+            case 3: return { from: '#22c55e', via: '#16a34a', to: '#15803d' }; // green
+            case 4: return { from: '#a855f7', via: '#9333ea', to: '#7e22ce' }; // purple
+            case 5: return { from: '#ec4899', via: '#db2777', to: '#be185d' }; // pink
+            case 6: return { from: '#f97316', via: '#ea580c', to: '#c2410c' }; // orange
+            default: return { from: '#f1f5f9', via: '#e2e8f0', to: '#ffffff' }; // slate/white
         }
     };
 
@@ -322,6 +477,9 @@ const KiBar = ({ ki, maxKi, isLeft }: { ki: number, maxKi: number, isLeft: boole
 
     const { s } = useUI();
 
+    // Calculate trailing width for same-bar or cross-bar trailing energy
+    const trailingPct = visualBars === bars ? visualPct : (visualBars > bars ? 100 : pct);
+
     return (
         <div 
             className={`flex items-end ${isLeft ? 'flex-row' : 'flex-row-reverse'}`}
@@ -330,12 +488,27 @@ const KiBar = ({ ki, maxKi, isLeft }: { ki: number, maxKi: number, isLeft: boole
             {/* Level Indicator */}
             <div className="relative group">
                 <motion.div 
-                    className={`relative bg-black border-[3px] md:border-[4px] transition-all duration-300 ${justDeflected ? 'border-cyan-400 ' : isMaxed ? 'border-yellow-400' : 'border-orange-500'} skew-x-[-12deg] flex items-center justify-center  z-10`}
+                    className={`relative bg-black border-[3px] md:border-[4px] transition-all duration-300 ${
+                        justDeflected 
+                            ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.9)]' 
+                            : isMaxed 
+                            ? 'border-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.9)]' 
+                            : isCharging
+                            ? 'border-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.9)]'
+                            : 'border-orange-500'
+                    } skew-x-[-12deg] flex items-center justify-center z-10 overflow-hidden`}
                     style={{ width: `${s(80)}px`, height: `${s(80)}px` }}
-                    animate={justDeflected ? { scale: [1, 1.25, 1], rotate: [-10, 10, 0] } : justLeveledUp ? { scale: [1, 1.4, 1], rotate: [-5, 5, 0] } : isMaxed ? { scale: [1, 1.05, 1] } : { scale: 1 }}
+                    animate={
+                        justDeflected ? { scale: [1, 1.25, 1], rotate: [-10, 10, 0] } : 
+                        justLeveledUp ? { scale: [1, 1.4, 1], rotate: [-5, 5, 0] } : 
+                        isCharging ? { scale: [1, 1.08, 1] } :
+                        isMaxed ? { scale: [1, 1.05, 1] } : 
+                        { scale: 1 }
+                    }
                     transition={
                         justDeflected ? { duration: 0.4 } :
                         justLeveledUp ? { duration: 0.5, times: [0, 0.5, 1] } : 
+                        isCharging ? { duration: 0.3 } :
                         isMaxed ? { duration: 1, repeat: Infinity } : 
                         { type: 'spring', stiffness: 300, damping: 15 }
                     }
@@ -343,8 +516,17 @@ const KiBar = ({ ki, maxKi, isLeft }: { ki: number, maxKi: number, isLeft: boole
                     {isMaxed && (
                         <div className="absolute inset-0 bg-yellow-400/20 animate-pulse pointer-events-none" />
                     )}
+                    {isCharging && (
+                        <div className="absolute inset-0 bg-amber-400/30 animate-ping pointer-events-none" />
+                    )}
                     <span 
-                        className={`font-black italic skew-x-[12deg] ${isMaxed ? 'text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]' : 'text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.6)]'}`}
+                        className={`font-black italic skew-x-[12deg] ${
+                            isMaxed 
+                                ? 'text-yellow-400 drop-shadow-[0_0_12px_rgba(250,204,21,0.9)]' 
+                                : isCharging
+                                ? 'text-amber-300 drop-shadow-[0_0_10px_rgba(251,191,36,0.9)]'
+                                : 'text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.6)]'
+                        }`}
                         style={{ fontSize: `${s(40)}px` }}
                     >
                         {bars === 0 && isMaxed ? 'MAX' : bars}
@@ -370,7 +552,15 @@ const KiBar = ({ ki, maxKi, isLeft }: { ki: number, maxKi: number, isLeft: boole
                 )}
 
                 <div 
-                    className={`absolute ${justDeflected ? 'bg-cyan-400 text-black' : isMaxed ? 'bg-yellow-400 text-black' : 'bg-orange-500 text-black'} font-black uppercase skew-x-[-12deg] z-20 transition-colors`}
+                    className={`absolute ${
+                        justDeflected 
+                            ? 'bg-cyan-400 text-black' 
+                            : isMaxed 
+                            ? 'bg-yellow-400 text-black' 
+                            : isCharging
+                            ? 'bg-amber-300 text-black'
+                            : 'bg-orange-500 text-black'
+                    } font-black uppercase skew-x-[-12deg] z-20 transition-colors`}
                     style={{ 
                         top: `-${s(12)}px`, 
                         left: `-${s(12)}px`,
@@ -386,36 +576,99 @@ const KiBar = ({ ki, maxKi, isLeft }: { ki: number, maxKi: number, isLeft: boole
             <div className="flex-1 relative" style={{ display: 'flex', flexDirection: 'column', gap: `${s(12)}px` }}>
 
                 <div 
-                    className={`bg-black border-[3px] md:border-[4px] transition-all duration-300 ${justDeflected ? 'border-cyan-400 ' : isMaxed ? 'border-yellow-400/50 ' : 'border-white/10 shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]'} skew-x-[-12deg] overflow-hidden relative`}
+                    className={`bg-slate-950 border-[3px] md:border-[4px] transition-all duration-300 ${
+                        justDeflected 
+                            ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.8)]' 
+                            : isMaxed 
+                            ? 'border-yellow-400/80 shadow-[0_0_25px_rgba(250,204,21,0.7)]' 
+                            : isCharging
+                            ? 'border-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.8)] scale-[1.01]'
+                            : isSpending
+                            ? 'border-orange-400 shadow-[0_0_15px_rgba(251,146,60,0.6)]'
+                            : 'border-white/20 shadow-[inset_0_0_20px_rgba(0,0,0,0.9)]'
+                    } skew-x-[-12deg] overflow-hidden relative`}
                     style={{ height: `${s(36)}px` }}
                 >
+                    {/* Background Pattern */}
+                    <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]" />
+
+                    {/* Previous level fill underneath */}
                     {bars > 0 && prevColors && (
                         <div 
-                            className="absolute inset-0" 
+                            className="absolute inset-0 opacity-80" 
                             style={{ background: `linear-gradient(to right, ${prevColors.from}, ${prevColors.to})` }}
                         />
                     )}
+
+                    {/* Trailing energy bar (Catch-up bar when Ki is consumed) */}
+                    <motion.div 
+                        className={`absolute inset-y-0 bg-white/70 ${isLeft ? 'left-0' : 'right-0'}`}
+                        animate={{ width: `${trailingPct}%` }}
+                        transition={{ duration: 0.6, ease: "easeOut" }}
+                    />
+
+                    {/* Main Active Ki level bar */}
                     <motion.div 
                         className={`absolute inset-y-0 ${isLeft ? 'left-0' : 'right-0'} ${isMaxed ? 'animate-pulse' : ''}`}
                         animate={{ width: `${pct}%` }}
-                        transition={{ duration: 0.1, ease: "linear" }}
-                        style={{ background: `linear-gradient(to right, ${currentColors.from}, ${currentColors.to})` }}
+                        transition={{ type: "tween", ease: "easeOut", duration: 0.2 }}
+                        style={{ background: `linear-gradient(to right, ${currentColors.from}, ${currentColors.via}, ${currentColors.to})` }}
                     >
-                        <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.4)_50%,transparent_75%)] bg-[length:250%_250%] animate-[shimmer_1.5s_infinite]"></div>
+                        {/* Shimmer animation */}
+                        <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.45)_50%,transparent_75%)] bg-[length:250%_250%] animate-[shimmer_1.5s_infinite]" />
+                        
+                        {/* Leading Edge Tip Aura Glow */}
+                        <div 
+                            className={`absolute top-0 bottom-0 bg-white/80 blur-[3px] shadow-[0_0_12px_#fff] ${isLeft ? 'right-0' : 'left-0'}`}
+                            style={{ width: `${s(10)}px` }}
+                        />
                     </motion.div>
+
+                    {/* Impact Spark Flare on Ki Spend / Decrease */}
+                    <AnimatePresence>
+                        {isSpending && (
+                            <motion.div
+                                key={`ki-flare-${flareCount}`}
+                                initial={{ scale: 0.5, opacity: 1 }}
+                                animate={{ scale: 2.2, opacity: [1, 0.8, 0] }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.4, ease: "easeOut" }}
+                                className="absolute top-0 bottom-0 pointer-events-none z-20 bg-gradient-to-r from-yellow-200 via-white to-amber-500 blur-[2px] shadow-[0_0_20px_#fff,0_0_30px_#f59e0b]"
+                                style={{
+                                    width: `${s(14)}px`,
+                                    [isLeft ? 'left' : 'right']: `${pct}%`,
+                                    transform: 'translateX(-50%)'
+                                }}
+                            />
+                        )}
+                    </AnimatePresence>
+
+                    {/* Gloss & Sheen Overlays */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-white/35 via-transparent to-black/40 pointer-events-none" />
+                    <div className="absolute top-0 inset-x-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent pointer-events-none" />
                 </div>
+
                 {/* Mini Bars */}
                 <div 
                     className={`flex ${isLeft ? 'justify-start' : 'justify-end'}`}
                     style={{ gap: `${s(8)}px` }}
                 >
-                    {[...Array(Math.ceil(safeMaxKi / 100))].map((_, i) => (
-                        <div 
-                            key={`minibar-${isLeft ? 'p1' : 'p2'}-${i}`} 
-                            className={`skew-x-[-12deg] transition-all duration-300 ${i < bars ? (isMaxed ? 'bg-yellow-400  transform scale-y-110' : 'bg-orange-500 ') : 'bg-slate-800'}`} 
-                            style={{ width: `${s(32)}px`, height: `${s(14)}px` }}
-                        />
-                    ))}
+                    {[...Array(Math.ceil(safeMaxKi / 100))].map((_, i) => {
+                        const isActive = i < bars;
+                        return (
+                            <motion.div 
+                                key={`minibar-${isLeft ? 'p1' : 'p2'}-${i}`} 
+                                className={`skew-x-[-12deg] rounded-sm transition-all duration-300 ${
+                                    isActive 
+                                        ? (isMaxed ? 'bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.8)]' : 'bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.6)]') 
+                                        : 'bg-slate-800/80 border border-white/5'
+                                }`} 
+                                style={{ width: `${s(32)}px`, height: `${s(14)}px` }}
+                                animate={{ scale: isActive && (justLeveledUp || isCharging) ? [1, 1.15, 1] : 1 }}
+                                transition={{ duration: 0.3 }}
+                            />
+                        );
+                    })}
                 </div>
             </div>
         </div>
@@ -545,7 +798,7 @@ export const HUDTop: React.FC<HUDProps> = React.memo(({ p1, p2, p1Team, p2Team, 
                                         style={{ width: `${s(100)}px`, height: `${s(100)}px` }}
                                     >
                                         <img 
-                                            src={p1.portraitUrl || p1Char?.thumbnail || AVATAR_LIST[0].url} 
+                                            src={p1.portraitUrl || (p1Char as any)?.thumbnail || AVATAR_LIST[0].url} 
                                             alt="P1" 
                                             className={`w-full h-full object-cover object-[center_20%] skew-x-[12deg] scale-125 transition-transform duration-300 ${p1.hp < p1.maxHp * 0.25 ? 'brightness-90 contrast-125' : ''}`}
                                             referrerPolicy="no-referrer"

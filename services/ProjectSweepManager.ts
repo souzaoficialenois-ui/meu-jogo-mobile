@@ -131,20 +131,16 @@ export class ProjectSweepManager {
       if (key.startsWith("CHAVE_")) {
         const beam = allBeams[key];
         if (!beam) return;
-        const isOrphaned = !activeBeams.has(key);
+        const isReferencedInChar = activeBeams.has(key) || !!beam.ownerCharacterId || !!beam.ownerAnimationKey;
+        const isOrphaned = !isReferencedInChar;
         
-        // Invalid criteria:
-        // - Missing middle segment animation imageUrl (created but never configured)
-        // - Frames <= 0
-        // - Empty properties or only default template values
-        const isUnconfigured = !beam.middle || !beam.middle.imageUrl || beam.middle.imageUrl.trim() === "";
-        const hasInvalidAnim = beam.middle && beam.middle.frames <= 0;
-        const isDefaultOnly = beam.name && (beam.name === "Beam 1" || beam.name === "Beam 2") && !beam.color;
+        const isUnconfigured = !beam.middle || (!beam.middle.imageUrl && (!beam.middle.frameWidth || beam.middle.frameWidth <= 0));
+        const hasInvalidAnim = beam.middle && beam.middle.frames < 0;
 
-        const isInvalid = isUnconfigured || hasInvalidAnim || isDefaultOnly;
+        const isInvalid = isUnconfigured || hasInvalidAnim;
 
-        // If the resource has absolutely no real use/reference or is invalid, remove it permanently
-        if (isOrphaned || isInvalid) {
+        // Only remove if both completely unreferenced and invalid/empty
+        if (isOrphaned && isInvalid) {
           beamManager.deleteBeam(key);
           deletedBeams.push(key);
         }
@@ -159,15 +155,15 @@ export class ProjectSweepManager {
       if (key.startsWith("CHAVE_") || key.includes("PROJETIL_") || key.includes("GENKIDAMA_") || key.includes("FECHO_")) {
         const proj = allProjectiles[key];
         if (!proj) return;
-        const isOrphaned = !activeProjectiles.has(key);
+        const isReferencedInChar = activeProjectiles.has(key) || !!proj.ownerCharacterId || !!proj.ownerAnimationKey;
+        const isOrphaned = !isReferencedInChar;
 
-        const isUnconfigured = !proj.middle || !proj.middle.imageUrl || proj.middle.imageUrl.trim() === "";
-        const hasInvalidAnim = proj.middle && proj.middle.frames <= 0;
-        const isDefaultOnly = proj.name && (proj.name.startsWith("Projetil ") || proj.name.startsWith("Custom")) && !proj.color;
+        const isUnconfigured = !proj.middle || (!proj.middle.imageUrl && (!proj.middle.frameWidth || proj.middle.frameWidth <= 0));
+        const hasInvalidAnim = proj.middle && proj.middle.frames < 0;
 
-        const isInvalid = isUnconfigured || hasInvalidAnim || isDefaultOnly;
+        const isInvalid = isUnconfigured || hasInvalidAnim;
 
-        if (isOrphaned || isInvalid) {
+        if (isOrphaned && isInvalid) {
           projManager.deleteProjectile(key);
           deletedProjectiles.push(key);
         }
@@ -184,13 +180,14 @@ export class ProjectSweepManager {
         if (!aura) return;
         
         // Safety check: is it marked as default charging/sparking, or explicitly referenced?
-        const isReferencedInChar = Array.from(activeAuras).includes(key) || aura.isDefaultCharging || aura.isDefaultSparking;
+        const isReferencedInChar = activeAuras.has(key) || aura.isDefaultCharging || aura.isDefaultSparking || !!aura.ownerCharacterId || !!aura.ownerAnimationKey;
         const isOrphaned = !isReferencedInChar;
 
-        const isUnconfigured = !aura.baseAuraId || aura.baseAuraId.trim() === "";
+        const isUnconfigured = (!(aura as any).auraSprite && !aura.baseAuraId) || 
+                               ((aura as any).auraSprite?.trim() === "" && aura.baseAuraId?.trim() === "");
         const isInvalid = isUnconfigured;
 
-        if (isOrphaned || isInvalid) {
+        if (isOrphaned && isInvalid) {
           auraManager.deleteAura(key);
           deletedAuras.push(key);
         }

@@ -404,7 +404,7 @@ export const EvolutionScreen: React.FC = () => {
                                         {selectedChar.progressionUnlocks.map((unlock, i) => {
                                             const isUnlocked = selectedChar.level >= unlock.level;
                                             return (
-                                                <div key={i} className={`p-[1.5vmin] rounded-xl border flex items-center gap-3 transition-colors ${isUnlocked ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/40 border-white/5 opacity-50'}`}>
+                                                <div key={`evo-unlock-${unlock.level}-${i}`} className={`p-[1.5vmin] rounded-xl border flex items-center gap-3 transition-colors ${isUnlocked ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/40 border-white/5 opacity-50'}`}>
                                                     <div className={`p-2 rounded-lg ${isUnlocked ? 'bg-orange-500/20 text-orange-400' : 'bg-white/5 text-slate-500'}`}>
                                                         {unlock.type === 'SKILL' ? <Zap size="2vmin" /> : unlock.type === 'TRANSFORM' ? <Star size="2vmin" /> : <Shield size="2vmin" />}
                                                     </div>

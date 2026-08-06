@@ -22,10 +22,28 @@ import { useUI, UIProvider } from '../../contexts/UIContext';
 import { KiParticles } from '../KiParticles';
 
 const ModeSelectionScreenContent: React.FC = () => {
-    const { changeScene, beginCharacterSelection, setAiDifficulty, t, settings } = useSceneManager();
+    const { changeScene, beginCharacterSelection, setAiDifficulty, t, settings, isChatOpen } = useSceneManager();
     const isPt = settings?.language === 'pt';
     const { s } = useUI();
-    const [selectedMode, setSelectedMode] = useState<GameMode>('ARCADE');
+    const [selectedMode, setSelectedMode] = useState<GameMode>(() => {
+        try {
+            const savedMode = localStorage.getItem('fighter_legend_selected_mode');
+            if (savedMode) return savedMode as GameMode;
+        } catch (e) {
+            console.error(e);
+        }
+        return 'ARCADE';
+    });
+
+    useEffect(() => {
+        if (selectedMode) {
+            try {
+                localStorage.setItem('fighter_legend_selected_mode', selectedMode);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    }, [selectedMode]);
     const [onlineStatus, setOnlineStatus] = useState<OnlineStatus>('LOADING');
     const [isLocalVsAllowed, setIsLocalVsAllowed] = useState(false);
 
@@ -183,6 +201,19 @@ const ModeSelectionScreenContent: React.FC = () => {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            const active = document.activeElement as HTMLElement | null;
+            const target = e.target as HTMLElement | null;
+            const isInput = (el: HTMLElement | null) => !!(el && (
+                el.tagName === 'INPUT' ||
+                el.tagName === 'TEXTAREA' ||
+                el.tagName === 'SELECT' ||
+                el.isContentEditable
+            ));
+
+            if (isInput(active) || isInput(target) || isChatOpen) {
+                return;
+            }
+
             const currentIdx = modes.findIndex(m => m.id === selectedMode);
             if (currentIdx === -1) return;
             if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'a' || e.key === 'w') {

@@ -162,7 +162,7 @@ export const SummonAnimation: React.FC<SummonAnimationProps> = ({ onComplete, re
                         />
                     ) : (
                         <div className="w-48 h-48 rounded-full bg-stone-900 border-4 border-stone-800 flex items-center justify-center">
-                             {featured.item.category === 'Skin' ? <Eye className="w-20 h-20 text-orange-400" /> : <Award className="w-20 h-20 text-purple-400" />}
+                             {(featured.item.category as string) === 'Skin' ? <Eye className="w-20 h-20 text-orange-400" /> : <Award className="w-20 h-20 text-purple-400" />}
                         </div>
                     )}
                 </motion.div>

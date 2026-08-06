@@ -10,7 +10,7 @@ const URLS = {
   carregando_ki_1: `${BASE_URL}carregando_ki_1.gif`,
   carregando_ki_2: `${BASE_URL}carregando_ki_2.gif`,
   carregando_ki_3: `${BASE_URL}carregando_ki_3.gif`,
-  dano_1: `${BASE_URL}dano_1.gif`,
+  dano_1: `${BASE_URL}caindo.gif`,
   defesa: `${BASE_URL}defesa.gif`,
   defesa_agachado: `${BASE_URL}defesa_agachado.gif`,
   defesa_ar: `${BASE_URL}defesa_ar.gif`,

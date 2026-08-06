@@ -162,10 +162,10 @@ export const StrikePassScreen: React.FC = () => {
                     </div>
 
                     <div className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-8 pb-10 select-none px-4">
-                        {BATTLE_PASS_LEVELS.map((levelData) => {
+                        {BATTLE_PASS_LEVELS.map((levelData, idx) => {
                             const isUnlocked = battlePass.currentLevel >= levelData.level;
                             return (
-                                <div key={levelData.level} className="flex flex-col gap-6 shrink-0 pt-10">
+                                <div key={`sp-level-${levelData.level}-${idx}`} className="flex flex-col gap-6 shrink-0 pt-10">
                                     <RewardCard 
                                         reward={levelData.premiumReward} 
                                         tier="PREMIUM" 

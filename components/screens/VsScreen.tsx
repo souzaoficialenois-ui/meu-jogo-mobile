@@ -590,7 +590,7 @@ export const VsScreen: React.FC = () => {
                     <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-xl border-2 border-orange-500/40 overflow-hidden bg-stone-950 shadow-[0_0_15px_rgba(249,115,22,0.2)]">
                             <img 
-                                src={AVATAR_LIST.find(a => a.id === onlineRoomData.hostAvatar)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                                src={AVATAR_LIST.find(a => a.id === onlineRoomData.hostAvatar)?.url || "/Assets/avatar/retrato/1.png"} 
                                 className="w-full h-full object-cover" 
                                 alt="" 
                             />
@@ -611,7 +611,7 @@ export const VsScreen: React.FC = () => {
           <div className="flex items-center justify-center relative w-full flex-wrap md:flex-nowrap" style={{ gap: s(16) }}>
             {p1TeamData.map((char, i) => (
               <motion.div
-                key={`p1-${char?.id || i}`}
+                key={`p1-${char?.id || i}-${i}`}
                 initial={{ opacity: 0, scale: 0.9, x: -50 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
                 transition={{
@@ -709,7 +709,7 @@ export const VsScreen: React.FC = () => {
                         </div>
                         <div className="w-12 h-12 rounded-xl border-2 border-cyan-500/40 overflow-hidden bg-stone-950 shadow-[0_0_15px_rgba(6,182,212,0.2)]">
                             <img 
-                                src={AVATAR_LIST.find(a => a.id === onlineRoomData.guestAvatar)?.url || "/Assets/UI/avatar_placeholder.png"} 
+                                src={AVATAR_LIST.find(a => a.id === onlineRoomData.guestAvatar)?.url || "/Assets/avatar/retrato/1.png"} 
                                 className="w-full h-full object-cover" 
                                 alt="" 
                             />
@@ -724,7 +724,7 @@ export const VsScreen: React.FC = () => {
           <div className="flex items-center justify-center relative w-full flex-wrap md:flex-nowrap md:flex-row-reverse" style={{ gap: s(16) }}>
             {p2TeamData.map((char, i) => (
               <motion.div
-                key={`p2-${char?.id || i}`}
+                key={`p2-${char?.id || i}-${i}`}
                 initial={{ opacity: 0, scale: 0.9, x: 50 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
                 transition={{
@@ -801,7 +801,7 @@ export const VsScreen: React.FC = () => {
            
            <div 
              className="text-center font-bold text-stone-300 bg-black/50 border border-white/5 rounded-full backdrop-blur-xs"
-             style={{ px: s(16), py: s(6), padding: `${s(6)}px ${s(16)}px` }}
+             style={{ padding: `${s(6)}px ${s(16)}px` }}
            >
              {loading ? (
                <span className="animate-pulse">SINCRONIZANDO {progress}%</span>

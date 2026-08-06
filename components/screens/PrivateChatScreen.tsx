@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { query, collection, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { useSceneManager } from '../../contexts/SceneContext';
 import { SceneName, ChatMessage } from '../../types';
 import { 
@@ -31,27 +33,28 @@ export const PrivateChatScreen: React.FC = () => {
     // Local state for private messages
     const [localPrivateMessages, setLocalPrivateMessages] = useState<ChatMessage[]>(privateMessages || []);
 
-    // Fetch private messages only when this screen is open
+    // Fetch private messages only when this screen is open and clean up on unmount
     useEffect(() => {
         if (!currentUser || !currentPrivateChatId) {
             setLocalPrivateMessages([]);
             return;
         }
         
-        import('firebase/firestore').then(({ query, collection, orderBy, limit, onSnapshot }) => {
-            const { db } = require('../../services/firebase');
-            const q = query(collection(db, 'private_chats', currentPrivateChatId, 'messages'), orderBy('timestamp', 'desc'), limit(50));
-            
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                const msgs = snapshot.docs.map(d => ({
-                    id: d.id,
-                    ...d.data()
-                })) as ChatMessage[];
-                setLocalPrivateMessages(msgs.reverse());
-            }, (error) => console.error("Local Private Chat Snapshot Error:", error));
-            
-            return () => unsubscribe();
-        });
+        const q = query(
+            collection(db, 'private_chats', currentPrivateChatId, 'messages'), 
+            orderBy('timestamp', 'desc'), 
+            limit(30)
+        );
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const msgs = snapshot.docs.map(d => ({
+                id: d.id,
+                ...d.data()
+            })) as ChatMessage[];
+            setLocalPrivateMessages(msgs.reverse());
+        }, (error) => console.error("Local Private Chat Snapshot Error:", error));
+        
+        return () => unsubscribe();
     }, [currentPrivateChatId, currentUser]);
 
     // Find the other user's info from friends list
@@ -158,6 +161,7 @@ export const PrivateChatScreen: React.FC = () => {
                     <input 
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
+                        onKeyDown={(e) => { e.stopPropagation(); }}
                         onBlur={() => {
                             window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
                         }}

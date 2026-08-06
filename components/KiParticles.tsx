@@ -119,7 +119,7 @@ export const KiParticles: React.FC<KiParticlesProps> = ({
                 }
 
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, Math.max(0, p.size), 0, Math.PI * 2);
                 const colorStr = theme[p.colorType];
                 ctx.fillStyle = `${colorStr}${p.alpha})`;
 

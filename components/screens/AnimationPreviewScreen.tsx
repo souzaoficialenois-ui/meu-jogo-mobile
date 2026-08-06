@@ -63,6 +63,7 @@ import {
   MessageSquare,
   Wrench,
   Palette,
+  Clapperboard,
   Search,
   Check,
   Edit,
@@ -72,6 +73,7 @@ import {
   Folder,
   ArrowUp,
   ArrowDown,
+  Sparkles,
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -293,6 +295,15 @@ export const AnimationPreviewScreen: React.FC = () => {
     clean(clone);
     return clone;
   };
+
+  const getAuraAnimationPath = (auraCfg: any): string => {
+    if (!auraCfg) return "/Assets/aura/1.gif";
+    const raw = auraCfg.auraSprite || auraCfg.auraAnimation || auraCfg.auraUrl || auraCfg.baseAuraId || "AURA_001";
+    if (DEFAULT_AURAS[raw as keyof typeof DEFAULT_AURAS]) {
+      return DEFAULT_AURAS[raw as keyof typeof DEFAULT_AURAS];
+    }
+    return raw;
+  };
   const containerRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalCharactersBackupRef = useRef<CharacterData[]>([]);
@@ -324,6 +335,10 @@ export const AnimationPreviewScreen: React.FC = () => {
     | "FULL_LIST"
   >("COMBAT");
 
+  const [activeManagerClass, setActiveManagerClass] = useState<
+    "BEAM" | "PROJECTILE" | "FECHO" | "GENKIDAMA" | "AURA" | "VFX"
+  >("BEAM");
+
   const [isPlaying, setIsPlaying] = useState(true);
   const [selectedState, _setSelectedState] = useState<string>(PlayerState.IDLE);
   const [zoom, setZoom] = useState(1);
@@ -341,12 +356,12 @@ export const AnimationPreviewScreen: React.FC = () => {
   const getAnimationCategoryFromKey = (key: string): AnimationCategory => {
     const upper = key.toUpperCase();
     if (upper.startsWith("CHAR_")) return AnimationCategory.CHARACTER;
-    if (upper.startsWith("BEAM_") || upper.startsWith("CHAVE_BEAM_")) return AnimationCategory.BEAM;
+    if (upper.startsWith("BEAM_") || upper.startsWith("CHAVE_BEAM_") || upper.includes("SUPER_ESPECIAL") || localBeamDatabase[key] || BEAM_DATABASE[key]) return AnimationCategory.BEAM;
     if (upper.startsWith("PROJECTILE_") || upper.startsWith("CHAVE_PROJETIL_") || upper.startsWith("KI_BLAST_") || upper.startsWith("PROJETIL_")) return AnimationCategory.PROJECTILE;
     if (upper.startsWith("GENKIDAMA_") || upper.startsWith("CHAVE_GENKIDAMA_")) return AnimationCategory.GENKIDAMA;
     if (upper.startsWith("ENERGYCLOSURE_") || upper.startsWith("CHAVE_FECHO_") || upper.startsWith("FECHO_")) return AnimationCategory.ENERGYCLOSURE;
     if (upper.startsWith("AURA_") || upper.startsWith("CHAVE_AURA_") || upper.startsWith("CHAVE_AURA")) return AnimationCategory.AURA;
-    if (upper.startsWith("EFFECT_") || upper.startsWith("VFX_") || upper.startsWith("CHAVE_VFX_")) return AnimationCategory.EFFECT;
+    if (upper.startsWith("EFFECT_") || upper.startsWith("VFX_") || upper.startsWith("CHAVE_VFX_") || localEffectDatabase[key] || (DEFAULT_EFFECTS as any)[key]) return AnimationCategory.EFFECT;
     if (upper.startsWith("CHAVE_")) return AnimationCategory.EFFECT;
 
     const standardStates = ["IDLE", "RUNNING", "DASHING", "ATTACKING", "HIT", "STUNNED", "CHARGING", "ULTIMATE", "TRANSFORM", "INTRO", "WIN", "LOSE"];
@@ -361,20 +376,24 @@ export const AnimationPreviewScreen: React.FC = () => {
     animationKey: string,
     applyFn: () => void
   ) => {
+    if (objectType === "CHARACTER") {
+      applyFn();
+      return true;
+    }
     const animCat = getAnimationCategoryFromKey(animationKey);
     let isCompatible = false;
-    if (objectType === "CHARACTER" && animCat === AnimationCategory.CHARACTER) isCompatible = true;
-    if (objectType === "BEAM" && animCat === AnimationCategory.BEAM) isCompatible = true;
-    if (objectType === "PROJECTILE" && animCat === AnimationCategory.PROJECTILE) isCompatible = true;
-    if (objectType === "GENKIDAMA" && animCat === AnimationCategory.GENKIDAMA) isCompatible = true;
-    if (objectType === "ENERGYCLOSURE" && animCat === AnimationCategory.ENERGYCLOSURE) isCompatible = true;
-    if (objectType === "AURA" && animCat === AnimationCategory.AURA) isCompatible = true;
-    if (objectType === "EFFECT" && animCat === AnimationCategory.EFFECT) isCompatible = true;
+    if (objectType === "BEAM") {
+      isCompatible = !!(localBeamDatabase[animationKey] || BEAM_DATABASE[animationKey] || BeamConfigKeyManager.getInstance().getBeamConfig(animationKey));
+    } else if (objectType === "PROJECTILE" || objectType === "GENKIDAMA" || objectType === "ENERGYCLOSURE") {
+      isCompatible = !!(localProjectileDatabase[animationKey] || PROJECTILE_DATABASE[animationKey] || ProjectileConfigKeyManager.getInstance().getProjectileConfig(animationKey));
+    } else if (objectType === "AURA") {
+      isCompatible = !!(localAuraDatabase[animationKey] || (DEFAULT_AURAS as any)[animationKey] || AuraConfigKeyManager.getInstance().getAuraConfig(animationKey));
+    } else if (objectType === "EFFECT") {
+      isCompatible = true;
+    }
 
     if (!isCompatible) {
-      console.error(`[Security Guard] OPERAÇÃO CANCELADA: Objeto do tipo ${objectType} tentou receber animação incompatível da categoria ${animCat} (${animationKey}).`);
-      alert(`[Erro de Segurança] Não é permitido aplicar animação da categoria ${animCat} em um objeto do tipo ${objectType}!`);
-      return false;
+      console.warn(`[Validation Warning] Applying animation key '${animationKey}' to type '${objectType}' using fallback configuration.`);
     }
 
     applyFn();
@@ -509,12 +528,20 @@ export const AnimationPreviewScreen: React.FC = () => {
   };
 
   const getActiveContextCategory = (tab: string): "CHARACTER" | "PROJECTILE" | "BEAM" | "GENKIDAMA" | "ENERGYCLOSURE" | "AURA" | "EFFECT" => {
-    if (tab === "BEAM" || tab === "BEAMS_MANAGER") return "BEAM";
+    if (tab === "BEAM") return "BEAM";
     if (tab === "PROJECTILE" || tab === "KI_BLAST") return "PROJECTILE";
     if (tab === "GENKIDAMA") return "GENKIDAMA";
     if (tab === "fechosenergia") return "ENERGYCLOSURE";
     if (tab === "AURAS") return "AURA";
     if (tab === "EFFECT" || tab === "VFX") return "EFFECT";
+    if (tab === "BEAMS_MANAGER") {
+      if (activeManagerClass === "PROJECTILE") return "PROJECTILE";
+      if (activeManagerClass === "GENKIDAMA") return "GENKIDAMA";
+      if (activeManagerClass === "FECHO") return "ENERGYCLOSURE";
+      if (activeManagerClass === "AURA") return "AURA";
+      if (activeManagerClass === "VFX") return "EFFECT";
+      return "BEAM";
+    }
     return "CHARACTER";
   };
 
@@ -617,31 +644,53 @@ export const AnimationPreviewScreen: React.FC = () => {
   }, [selectedChar?.id]);
 
   useEffect(() => {
-    if ((activeTab === "VFX" || activeTab === "EFFECT") && selectedEffectKey) {
-      const effectConfig = EffectConfigKeyManager.getInstance().getEffect(selectedEffectKey);
+    if (activeTab === "VFX" || (activeTab as string) === "EFFECT" || (activeTab === "BEAMS_MANAGER" && ((activeManagerClass as string) === "EFFECT" || activeManagerClass === "VFX"))) {
+      if (!selectedEffectKey || !localEffectDatabase[selectedEffectKey]) {
+        const keys = Object.keys(localEffectDatabase);
+        if (keys.length > 0) {
+          setSelectedEffectKey(keys[0]);
+        } else {
+          const allEff = EffectConfigKeyManager.getInstance().getAllEffects();
+          const allKeys = Object.keys(allEff);
+          if (allKeys.length > 0) {
+            setSelectedEffectKey(allKeys[0]);
+          }
+        }
+      }
+    }
+  }, [activeTab, activeManagerClass, localEffectDatabase, selectedEffectKey]);
+
+  useEffect(() => {
+    if ((activeTab === "VFX" || (activeTab as string) === "EFFECT" || (activeTab === "BEAMS_MANAGER" && ((activeManagerClass as string) === "EFFECT" || activeManagerClass === "VFX"))) && selectedEffectKey) {
+      const effectConfig = EffectConfigKeyManager.getInstance().getEffect(selectedEffectKey) || localEffectDatabase[selectedEffectKey];
       if (effectConfig) {
+        const url = effectConfig.imageUrl || (DEFAULT_EFFECTS as any)[effectConfig.baseEffectId || ""] || "";
         setEffectAnimationContext({
-          imageUrl: effectConfig.imageUrl || (DEFAULT_EFFECTS as any)[effectConfig.baseEffectId || ""] || "",
+          imageUrl: url,
           frameWidth: effectConfig.frameWidth || 100,
           frameHeight: effectConfig.frameHeight || 100,
           frames: effectConfig.frames || 1,
           speed: effectConfig.speed || 5,
           scale: effectConfig.scale || 1,
           loop: effectConfig.loop !== false,
-          isGif: true,
+          isGif: url ? url.toLowerCase().endsWith(".gif") : true,
           offsetX: effectConfig.offsetX || 0,
           offsetY: effectConfig.offsetY || 0,
         });
       }
     }
-  }, [activeTab, selectedEffectKey, localEffectDatabase]);
+  }, [activeTab, activeManagerClass, selectedEffectKey, localEffectDatabase]);
 
   useEffect(() => {
     return () => {
+      // Save all key managers to storage on unmount
       try {
-        localStorage.removeItem("dd2d_char_overrides");
+        BeamConfigKeyManager.getInstance().saveToStorage();
+        ProjectileConfigKeyManager.getInstance().saveToStorage();
+        AuraConfigKeyManager.getInstance().saveToStorage();
+        EffectConfigKeyManager.getInstance().saveToStorage();
       } catch (e) {
-        console.error("Falha ao limpar character overrides ao fechar o editor:", e);
+        console.error("Error saving key managers on preview unmount:", e);
       }
     };
   }, []);
@@ -1088,7 +1137,7 @@ export const AnimationPreviewScreen: React.FC = () => {
 
   const exportKeyConfigString = (
     key: string,
-    category: "BEAM" | "PROJECTILE" | "GENKIDAMA" | "FECHO" | "VFX",
+    category: "BEAM" | "PROJECTILE" | "GENKIDAMA" | "FECHO" | "VFX" | "AURA",
   ) => {
     if (category === "BEAM") {
       const currentBeam = localBeamDatabase[key];
@@ -1106,7 +1155,7 @@ export const AnimationPreviewScreen: React.FC = () => {
       if (currentBeam.beamHueRotate !== undefined) overridesObj.beamHueRotate = currentBeam.beamHueRotate;
       if (currentBeam.beamSaturate !== undefined) overridesObj.beamSaturate = currentBeam.beamSaturate;
       if (currentBeam.beamContrast !== undefined) overridesObj.beamContrast = currentBeam.beamContrast;
-      if (currentBeam.rotation !== undefined) overridesObj.rotation = currentBeam.rotation;
+      if ((currentBeam as any).rotation !== undefined) overridesObj.rotation = (currentBeam as any).rotation;
       if (currentBeam.name !== undefined) overridesObj.name = currentBeam.name;
 
       const beamDbObj = JSON.parse(JSON.stringify(currentBeam));
@@ -1258,7 +1307,7 @@ ${animText}
       if (currentProj.color !== undefined) overridesObj.color = currentProj.color;
       if (currentProj.projectileOpacity !== undefined) overridesObj.projectileOpacity = currentProj.projectileOpacity;
       if (currentProj.projectileBrightness !== undefined) overridesObj.projectileBrightness = currentProj.projectileBrightness;
-      if (currentProj.rotation !== undefined) overridesObj.rotation = currentProj.rotation;
+      if ((currentProj as any).rotation !== undefined) overridesObj.rotation = (currentProj as any).rotation;
       if (currentProj.name !== undefined) overridesObj.name = currentProj.name;
 
       const projectileDbObj = JSON.parse(JSON.stringify(currentProj));
@@ -1349,6 +1398,29 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 // 1. ADICIONE ISSO NO BANCO DE EFEITOS (VFX):
 "${key}": ${JSON.stringify(cleanObj(effectDbObj), null, 4)}
 `;
+    } else if (category === "AURA") {
+      const currentAura = localAuraDatabase[key] || AuraConfigKeyManager.getInstance().getAuraConfig(key);
+      if (!currentAura) return "";
+
+      const animPath = getAuraAnimationPath(currentAura);
+      const auraDbObj = JSON.parse(JSON.stringify(currentAura));
+      delete auraDbObj.id;
+      delete auraDbObj.configKey;
+      delete auraDbObj.ownerCharacterId;
+      delete auraDbObj.ownerAnimationKey;
+      delete auraDbObj.ownerCharacterName;
+
+      auraDbObj.auraSprite = animPath;
+      auraDbObj.auraAnimation = animPath;
+      auraDbObj.auraUrl = animPath;
+
+      return `// =========================================================================
+// CONFIGURAÇÕES DA AURA: ${key}
+// =========================================================================
+
+// 1. ADICIONE ISSO NO BANCO DE AURAS (AuraConfigKeyManager):
+"${key}": ${JSON.stringify(cleanObj(auraDbObj), null, 4)}
+`;
     }
     return "";
   };
@@ -1422,9 +1494,6 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
   const [selectedBeamPart, setSelectedBeamPart] = useState<
     "start" | "middle" | "end"
   >("middle");
-  const [activeManagerClass, setActiveManagerClass] = useState<
-    "BEAM" | "PROJECTILE" | "FECHO" | "GENKIDAMA" | "AURA" | "VFX"
-  >("BEAM");
   const [frameIndex, setFrameIndex] = useState(0);
   const [charFrameIndex, setCharFrameIndex] = useState(0);
   const [lastTime, setLastTime] = useState(0);
@@ -1441,25 +1510,33 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     show: false,
   });
 
-  const isProjTab =
-    activeTab === "KI_BLAST" ||
-    activeTab === "GENKIDAMA" ||
-    activeTab === "fechosenergia";
-  const isBeamTab = activeTab === "BEAM";
-  const isBeamOrProjTab = isProjTab || isBeamTab;
-
   const activeCategory = getActiveContextCategory(activeTab);
+
+  const isBeamTab = activeCategory === "BEAM";
+  const isProjTab =
+    activeCategory === "PROJECTILE" ||
+    activeCategory === "GENKIDAMA" ||
+    activeCategory === "ENERGYCLOSURE";
+  const isAuraTab = activeCategory === "AURA";
+  const isVfxTab = activeCategory === "EFFECT";
+  const isBeamOrProjTab = isBeamTab || isProjTab;
+
+  const fallbackCharAnim =
+    selectedChar?.spriteConfig?.animations?.[selectedState] ||
+    (selectedChar?.spriteConfig?.animations
+      ? (Object.values(selectedChar.spriteConfig.animations)[0] as AnimationFrameData)
+      : null);
 
   const config = (() => {
     switch (activeCategory) {
-      case "CHARACTER": return characterAnimationContext;
-      case "PROJECTILE": return projectileAnimationContext;
-      case "BEAM": return beamAnimationContext;
-      case "GENKIDAMA": return genkidamaAnimationContext;
-      case "ENERGYCLOSURE": return energyClosureAnimationContext;
-      case "AURA": return auraAnimationContext;
-      case "EFFECT": return effectAnimationContext;
-      default: return characterAnimationContext;
+      case "CHARACTER": return characterAnimationContext || fallbackCharAnim;
+      case "PROJECTILE": return projectileAnimationContext || fallbackCharAnim;
+      case "BEAM": return beamAnimationContext || fallbackCharAnim;
+      case "GENKIDAMA": return genkidamaAnimationContext || fallbackCharAnim;
+      case "ENERGYCLOSURE": return energyClosureAnimationContext || fallbackCharAnim;
+      case "AURA": return auraAnimationContext || fallbackCharAnim;
+      case "EFFECT": return effectAnimationContext || fallbackCharAnim;
+      default: return characterAnimationContext || fallbackCharAnim;
     }
   })();
 
@@ -1789,7 +1866,6 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           ) || Object.keys(PROJECTILE_DATABASE)[0];
         if (firstBlast) {
           setSelectedProjectileFamilyId(firstBlast);
-          setSelectedBeamFamilyId(firstBlast);
         }
       }
     } else if (
@@ -1817,7 +1893,6 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           ) || Object.keys(PROJECTILE_DATABASE)[0];
         if (firstGenki) {
           setSelectedProjectileFamilyId(firstGenki);
-          setSelectedBeamFamilyId(firstGenki);
         }
       }
     } else if (
@@ -1834,7 +1909,6 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           ) || Object.keys(PROJECTILE_DATABASE)[0];
         if (firstFecho) {
           setSelectedProjectileFamilyId(firstFecho);
-          setSelectedBeamFamilyId(firstFecho);
         }
       }
     } else if (
@@ -2232,11 +2306,11 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       const resolvedKiX =
         linkedAnim?.kiOriginX !== undefined
           ? linkedAnim.kiOriginX
-          : (characterConfig.kiOriginX ?? selectedChar.spriteConfig?.kiOriginX ?? 76);
+          : ((characterConfig as any).kiOriginX ?? selectedChar.spriteConfig?.kiOriginX ?? 76);
       const resolvedKiY =
         linkedAnim?.kiOriginY !== undefined
           ? linkedAnim.kiOriginY
-          : (characterConfig.kiOriginY ?? selectedChar.spriteConfig?.kiOriginY ?? 125);
+          : ((characterConfig as any).kiOriginY ?? selectedChar.spriteConfig?.kiOriginY ?? 125);
 
       const kiX = centerX - PLAYER_WIDTH / 2 + resolvedKiX;
       const kiY = centerY - PLAYER_HEIGHT / 2 + resolvedKiY;
@@ -2382,8 +2456,8 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           ? selectedChar.spriteConfig?.animations?.[selectedState] || selectedChar.spriteConfig?.animations?.["IDLE"]
           : config) || {};
 
-    let resolvedKiX = characterConfig?.kiOriginX ?? 0;
-    let resolvedKiY = characterConfig?.kiOriginY ?? 0;
+    let resolvedKiX = (characterConfig as any)?.kiOriginX ?? 0;
+    let resolvedKiY = (characterConfig as any)?.kiOriginY ?? 0;
 
     if (isEditingBeam && selectedState) {
       const animToUpdate =
@@ -2398,11 +2472,11 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       resolvedKiX =
         linkedAnim?.kiOriginX !== undefined
           ? linkedAnim.kiOriginX
-          : (characterConfig.kiOriginX ?? selectedChar.spriteConfig?.kiOriginX ?? 76);
+          : ((characterConfig as any).kiOriginX ?? selectedChar.spriteConfig?.kiOriginX ?? 76);
       resolvedKiY =
         linkedAnim?.kiOriginY !== undefined
           ? linkedAnim.kiOriginY
-          : (characterConfig.kiOriginY ?? selectedChar.spriteConfig?.kiOriginY ?? 125);
+          : ((characterConfig as any).kiOriginY ?? selectedChar.spriteConfig?.kiOriginY ?? 125);
     } else if (
       config?.kiOriginX !== undefined ||
       selectedChar.spriteConfig?.kiOriginX !== undefined
@@ -2441,14 +2515,14 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             selectedChar.spriteConfig?.animations?.[selectedState]
               ?.projectileConfig ??
             selectedChar.spriteConfig?.animations?.[selectedState]?.beamConfig);
-        const mergedStart = family.start
-          ? { ...family.start, ...(charOverrides?.start as any) }
+        const mergedStart = (family as any)?.start
+          ? { ...(family as any).start, ...(charOverrides?.start as any) }
           : undefined;
-        const mergedMiddle = family.middle
-          ? { ...family.middle, ...(charOverrides?.middle as any) }
-          : family.middle;
-        const mergedEnd = family.end
-          ? { ...family.end, ...(charOverrides?.end as any) }
+        const mergedMiddle = (family as any)?.middle
+          ? { ...(family as any).middle, ...(charOverrides?.middle as any) }
+          : (family as any)?.middle;
+        const mergedEnd = (family as any)?.end
+          ? { ...(family as any).end, ...(charOverrides?.end as any) }
           : undefined;
 
         const actStart =
@@ -2493,7 +2567,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             activeTab === "KI_BLAST" ||
             activeTab === "GENKIDAMA" ||
             activeTab === "fechosenergia" ||
-            activeTab === "PROJECTILE"
+            (activeTab as string) === "PROJECTILE"
           )
             return true;
           const anim = selectedChar.spriteConfig?.animations?.[selectedState];
@@ -2812,15 +2886,24 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     }
 
     // 1. Sync character context
-    if (selectedChar.spriteConfig?.animations[selectedState]) {
-      const originalConfig = selectedChar.spriteConfig.animations[selectedState];
-      setCharacterAnimationContext({
-        ...originalConfig!,
-        offsetX: originalConfig!.offsetX !== undefined ? originalConfig!.offsetX : 0,
-        offsetY: originalConfig!.offsetY !== undefined ? originalConfig!.offsetY : 0,
-        scale: originalConfig!.scale !== undefined ? originalConfig!.scale : selectedChar.spriteConfig.defaultScale,
-        speed: originalConfig!.speed || 5,
-      });
+    const charAnims = selectedChar.spriteConfig?.animations;
+    if (charAnims) {
+      const targetStateKey =
+        charAnims[selectedState]
+          ? selectedState
+          : Object.keys(charAnims).find((k) => k.toLowerCase() === selectedState.toLowerCase()) ||
+            Object.keys(charAnims)[0];
+
+      if (targetStateKey && charAnims[targetStateKey]) {
+        const originalConfig = charAnims[targetStateKey];
+        setCharacterAnimationContext({
+          ...originalConfig,
+          offsetX: originalConfig.offsetX !== undefined ? originalConfig.offsetX : 0,
+          offsetY: originalConfig.offsetY !== undefined ? originalConfig.offsetY : 0,
+          scale: originalConfig.scale !== undefined ? originalConfig.scale : selectedChar.spriteConfig?.defaultScale || 1,
+          speed: originalConfig.speed || 5,
+        });
+      }
     }
 
     // 2. Sync Beam context
@@ -2905,6 +2988,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     if (selectedAuraKey && localAuraDatabase[selectedAuraKey]) {
       const currentAura = localAuraDatabase[selectedAuraKey];
       setAuraAnimationContext({
+        imageUrl: '',
+        frameWidth: 100,
+        frameHeight: 100,
         frames: 1,
         speed: 5,
         offsetX: currentAura.auraOffsetX !== undefined ? currentAura.auraOffsetX : 0,
@@ -2972,13 +3058,13 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             : activeCat !== "CHARACTER"
               ? selectedChar.spriteConfig?.animations?.[selectedState] || selectedChar.spriteConfig?.animations?.["IDLE"]
               : config) || {};
-        const charSpeed = characterConfig.speed || 5;
+        const charSpeed = (characterConfig as any).speed || 5;
         const charFrameDuration = (1000 / 60) * charSpeed;
 
         if (time - lastCharTime >= charFrameDuration) {
           setCharFrameIndex((prev) => {
-            const totalFrames = characterConfig.frames || 1;
-            if (characterConfig.loop === false && prev >= totalFrames - 1)
+            const totalFrames = (characterConfig as any).frames || 1;
+            if ((characterConfig as any).loop === false && prev >= totalFrames - 1)
               return prev;
             return (prev + 1) % totalFrames;
           });
@@ -3160,22 +3246,27 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     if (!canvas || !ctx || !config) return;
 
     const getOffscreen = (w: number, h: number) => {
+      if (!w || !h || w <= 0 || h <= 0 || isNaN(w) || isNaN(h)) return null;
+      const targetW = Math.floor(w);
+      const targetH = Math.floor(h);
+      if (targetW <= 0 || targetH <= 0) return null;
+
       if (!offscreenCanvasRef.current) {
         offscreenCanvasRef.current = document.createElement("canvas");
       }
       const c = offscreenCanvasRef.current;
-      if (c.width !== w || c.height !== h) {
-        c.width = w;
-        c.height = h;
-      } else {
-        const tempCtx = c.getContext("2d");
-        if (tempCtx) {
-          tempCtx.imageSmoothingEnabled = false;
-          tempCtx.setTransform(1, 0, 0, 1, 0, 0);
-          tempCtx.clearRect(0, 0, w, h);
-        }
+      if (c.width !== targetW || c.height !== targetH) {
+        c.width = targetW;
+        c.height = targetH;
       }
-      return { canvas: c, ctx: c.getContext("2d")! };
+      const tempCtx = c.getContext("2d");
+      if (tempCtx) {
+        tempCtx.imageSmoothingEnabled = false;
+        tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+        tempCtx.clearRect(0, 0, targetW, targetH);
+        return { canvas: c, ctx: tempCtx };
+      }
+      return null;
     };
 
     ctx.imageSmoothingEnabled = false;
@@ -3240,19 +3331,14 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
     ctx.save();
 
-    // Apply Screen Shake
-    if (config.shakeFrames?.includes(frameIndex)) {
-      const intensity = config.shakeIntensity || 5;
-      const sx = (Math.random() - 0.5) * intensity * 2;
-      const sy = (Math.random() - 0.5) * intensity * 2;
-      ctx.translate(sx, sy);
-    }
+    // Apply Screen Shake (Disabled per user requirement)
+    // if (config.shakeFrames?.includes(frameIndex)) { ... }
 
     // Emulate Game Camera Zoom and Rotation
+    const hasExplicitZoomType = (!!config.zoomType && config.zoomType !== "DEFAULT_CENTER" && (config.zoomType as string) !== "NONE") || !!config.fullScreen;
     if (
-      config.zoomType ||
-      config.cameraRotation !== undefined ||
-      config.fullScreen
+      hasExplicitZoomType ||
+      config.cameraRotation !== undefined
     ) {
       let currentZoom = 1;
       let zoomVal = config.zoomAmount !== undefined ? config.zoomAmount : 1.5;
@@ -3473,9 +3559,44 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     const characterConfig =
       (hasAttackContext
         ? previewCharBase.spriteConfig?.animations?.[attackContextKey!]
-        : (isEditingBeam || (activeCat !== "CHARACTER" && activeCat !== "EFFECT" && activeCat !== "AURA")) && !previewCharBase.id.includes("BEAM_CATALOG")
+        : (isEditingBeam || (activeCat !== "CHARACTER" && activeCat !== "EFFECT")) && !previewCharBase.id.includes("BEAM_CATALOG")
           ? previewCharBase.spriteConfig?.animations?.[selectedState] || previewCharBase.spriteConfig?.animations?.["IDLE"]
           : config) || {};
+
+    const activeAnimKey = characterStateKey || selectedState || "IDLE";
+    const baseAnims = {
+      ...(previewCharBase.spriteConfig?.animations || {}),
+      ...(selectedChar.spriteConfig?.animations || {}),
+    };
+    const existingAnim =
+      baseAnims[activeAnimKey] ||
+      baseAnims[selectedState] ||
+      (activeAnimKey ? baseAnims[activeAnimKey.toLowerCase()] || baseAnims[activeAnimKey.toUpperCase()] : undefined) ||
+      (selectedState ? baseAnims[selectedState.toLowerCase()] || baseAnims[selectedState.toUpperCase()] : undefined) ||
+      (Object.values(baseAnims)[0] as AnimationFrameData | undefined);
+
+    const charCfg = characterConfig as any;
+    const mergedActiveAnim: AnimationFrameData = {
+      ...(existingAnim || {}),
+      ...(charCfg || {}),
+      imageUrl: charCfg?.imageUrl || existingAnim?.imageUrl || "",
+      frameWidth: charCfg?.frameWidth || existingAnim?.frameWidth || 100,
+      frameHeight: charCfg?.frameHeight || existingAnim?.frameHeight || 100,
+      frames: charCfg?.frames || existingAnim?.frames || 1,
+    };
+
+    const previewCharWithAnim: CharacterData = {
+      ...previewCharBase,
+      spriteConfig: {
+        ...previewCharBase.spriteConfig!,
+        animations: {
+          ...baseAnims,
+          ...(activeAnimKey ? { [activeAnimKey]: mergedActiveAnim } : {}),
+          ...(selectedState ? { [selectedState]: mergedActiveAnim } : {}),
+          ...(characterStateKey ? { [characterStateKey]: mergedActiveAnim } : {}),
+        },
+      },
+    };
 
     if (!isEditingBeam && config.trailEffect && activeTab !== "VFX") {
       ctx.globalAlpha = 0.3;
@@ -3483,13 +3604,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       ctx.translate(-30, 0);
       animManager.drawPlayer(
         ctx,
-        {
-          ...selectedChar,
-          spriteConfig: {
-            ...selectedChar.spriteConfig!,
-            animations: { [characterStateKey!]: characterConfig },
-          },
-        },
+        previewCharWithAnim,
         characterStateKey as PlayerState,
         centerX - PLAYER_WIDTH / 2,
         centerY - PLAYER_HEIGHT / 2,
@@ -3508,13 +3623,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       // Draw previous frame onion skin without offset
       animManager.drawPlayer(
         ctx,
-        {
-          ...selectedChar,
-          spriteConfig: {
-            ...selectedChar.spriteConfig!,
-            animations: { [characterStateKey!]: characterConfig },
-          },
-        },
+        previewCharWithAnim,
         characterStateKey as PlayerState,
         centerX - PLAYER_WIDTH / 2,
         centerY - PLAYER_HEIGHT / 2,
@@ -3629,17 +3738,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       }
     }
 
-    const previewCharWithAnim = {
-      ...previewCharBase,
-      spriteConfig: {
-        ...previewCharBase.spriteConfig!,
-        animations: { [characterStateKey!]: characterConfig },
-      },
-    };
-
     // Prepare Ki Blast / Beam origin and animations for the background drawing
     let hasAnyKiOrigin =
-      characterConfig.kiOriginX !== undefined ||
+      (characterConfig as any).kiOriginX !== undefined ||
       config.kiOriginX !== undefined ||
       selectedChar.spriteConfig?.kiOriginX !== undefined;
     if (isEditingBeam) hasAnyKiOrigin = true; // Always draw beam preview if editing beam
@@ -3648,9 +3749,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     let helperKiY = 125;
     if (hasAnyKiOrigin) {
       helperKiX =
-        characterConfig?.kiOriginX ?? selectedChar.spriteConfig?.kiOriginX ?? 0;
+        (characterConfig as any)?.kiOriginX ?? selectedChar.spriteConfig?.kiOriginX ?? 0;
       helperKiY =
-        characterConfig?.kiOriginY ?? selectedChar.spriteConfig?.kiOriginY ?? 0;
+        (characterConfig as any)?.kiOriginY ?? selectedChar.spriteConfig?.kiOriginY ?? 0;
 
       if (isEditingBeam) {
         let startKey = selectedState
@@ -3689,7 +3790,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             ? explicitStartKiX
             : explicitMidKiX !== undefined
               ? explicitMidKiX
-              : (characterConfig.kiOriginX ??
+              : ((characterConfig as any).kiOriginX ??
                 selectedChar.spriteConfig?.kiOriginX ??
                 76);
         helperKiY =
@@ -3697,7 +3798,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             ? explicitStartKiY
             : explicitMidKiY !== undefined
               ? explicitMidKiY
-              : (characterConfig.kiOriginY ??
+              : ((characterConfig as any).kiOriginY ??
                 selectedChar.spriteConfig?.kiOriginY ??
                 125);
       } else if (
@@ -3714,8 +3815,31 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     const kiX = centerX - PLAYER_WIDTH / 2 + helperKiX;
     const kiY = centerY - PLAYER_HEIGHT / 2 + helperKiY;
 
-    // --- DRAW BEAM EDIT HELPER (BEHIND CHARACTER) ---
-    if (hasAnyKiOrigin && (isBeamOrProjTab || activeTab === "BEAMS_MANAGER")) {
+    // --- DRAW BEAM/PROJECTILE/GENKIDAMA/FECHO EDIT HELPER (BEHIND CHARACTER) ---
+    const currentAnimStateObj = selectedChar.spriteConfig?.animations?.[characterStateKey];
+    const hasBeamOrProjOnAnim = currentAnimStateObj && (
+      currentAnimStateObj.createsBeam ||
+      currentAnimStateObj.projectileId ||
+      currentAnimStateObj.beamConfig ||
+      currentAnimStateObj.projectileConfig
+    );
+    const isAttackState = characterStateKey && (
+      characterStateKey.includes("BEAM") ||
+      characterStateKey.includes("PROJETIL") ||
+      characterStateKey.includes("GENKIDAMA") ||
+      characterStateKey.includes("FECHO") ||
+      characterStateKey.includes("ATTACK") ||
+      characterStateKey.includes("ULTIMATE") ||
+      characterStateKey.includes("KI_BLAST") ||
+      characterStateKey.includes("SPECIAL")
+    );
+
+    const canDrawBeamOrProj =
+      !isAuraTab &&
+      !isVfxTab &&
+      (isBeamOrProjTab || (activeCategory === "CHARACTER" && (hasBeamOrProjOnAnim || isAttackState)));
+
+    if (hasAnyKiOrigin && canDrawBeamOrProj) {
       const isFacingRight = true;
 
       let startAnim: any = null;
@@ -3723,7 +3847,6 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       let endAnim: any = null;
 
       if (isBeamOrProjTab) {
-        const isBeamTab = activeTab === "BEAM";
         const projFamilyId = selectedProjectileFamilyId || selectedBeamFamilyId;
         const family = isBeamTab
           ? localBeamDatabase[selectedBeamFamilyId]
@@ -3742,14 +3865,14 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
               selectedChar.spriteConfig?.animations?.[selectedState]
                 ?.beamConfig);
 
-          const mergedStart = family.start
-            ? { ...family.start, ...(charOverrides?.start as any) }
+          const mergedStart = (family as any).start
+            ? { ...(family as any).start, ...(charOverrides?.start as any) }
             : undefined;
-          const mergedMiddle = family.middle
-            ? { ...family.middle, ...(charOverrides?.middle as any) }
-            : family.middle;
-          const mergedEnd = family.end
-            ? { ...family.end, ...(charOverrides?.end as any) }
+          const mergedMiddle = (family as any).middle
+            ? { ...(family as any).middle, ...(charOverrides?.middle as any) }
+            : (family as any).middle;
+          const mergedEnd = (family as any).end
+            ? { ...(family as any).end, ...(charOverrides?.end as any) }
             : undefined;
 
           startAnim =
@@ -3860,7 +3983,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           activeTab === "KI_BLAST" ||
           activeTab === "GENKIDAMA" ||
           activeTab === "fechosenergia" ||
-          activeTab === "PROJECTILE"
+          (activeTab as string) === "PROJECTILE"
         )
           return true;
         const anim = selectedState
@@ -3910,9 +4033,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           family = baseProj ? {
             ...baseProj,
             ...charProjOverrides,
-            start: baseProj.start || charProjOverrides?.start ? { ...baseProj.start, ...charProjOverrides?.start } : undefined,
+            start: (baseProj as any).start || charProjOverrides?.start ? { ...(baseProj as any).start, ...charProjOverrides?.start } : undefined,
             middle: baseProj.middle || charProjOverrides?.middle ? { ...baseProj.middle, ...charProjOverrides?.middle } : undefined,
-            end: baseProj.end || charProjOverrides?.end ? { ...baseProj.end, ...charProjOverrides?.end } : undefined,
+            end: (baseProj as any).end || charProjOverrides?.end ? { ...(baseProj as any).end, ...charProjOverrides?.end } : undefined,
           } : undefined;
         } else {
           const baseFamily = beamFamilyId
@@ -3928,9 +4051,12 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           } : undefined;
         }
 
-        if (isProjectile && midAnim) {
-          const midImg = animManager.getGifFrame(midAnim.imageUrl, frameIndex);
-          if (midImg) {
+        if (isProjectile && midAnim && midAnim.imageUrl) {
+          const isGif = midAnim.isGif || midAnim.imageUrl.toLowerCase().endsWith(".gif");
+          const midImg: any = isGif
+            ? animManager.getGifFrame(midAnim.imageUrl, frameIndex)
+            : animManager.loadTexture(midAnim.imageUrl);
+          if (midImg && (midImg.width > 0 || midImg.complete)) {
             ctx.save();
             ctx.translate(
               kiX + (midAnim.offsetX || 0),
@@ -3985,6 +4111,22 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
               if (opacity !== undefined) {
                 ctx.globalAlpha = opacity;
               }
+
+              const glowQual = (animManager as any).getGlowQuality ? (animManager as any).getGlowQuality() : 'NORMAL';
+              if (glowQual !== 'DISABLED') {
+                const isUltra = glowQual === 'ULTRA';
+                const projGlowColor =
+                  (family?.glowColor && family.glowColor.trim() !== "")
+                    ? family.glowColor
+                    : (family?.color ? family.color : '#ffaa00');
+                const defaultBlur = isUltra ? 28 : 16;
+                const baseRadius = family?.glowRadius ?? family?.glowBlur ?? defaultBlur;
+                const intensity = family?.glowIntensity ?? 1.0;
+                const projGlowBlur = Math.max(12, Math.round(baseRadius * intensity));
+
+                ctx.shadowColor = projGlowColor;
+                ctx.shadowBlur = projGlowBlur;
+              }
             }
 
             const scale = midAnim.scale || 1.5;
@@ -4014,10 +4156,12 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
         } else {
           // Unified beam drawing via offscreen canvas to avoid artifact overlap bugs
           const originalTransform = ctx.getTransform();
-          const { canvas: tempCanvas, ctx: tempCtx } = getOffscreen(
+          const offscreen = getOffscreen(
             canvas.width,
             canvas.height,
           );
+          if (!offscreen) return;
+          const { canvas: tempCanvas, ctx: tempCtx } = offscreen;
           tempCtx.setTransform(originalTransform);
 
           const scale = midAnim?.scale || 2.2;
@@ -4053,12 +4197,15 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           midRight = Math.max(midLeft, midRight);
           const drawMidWidth = midRight - midLeft;
 
-          if (midAnim) {
-            let baseMidImg = animManager.getGifFrame(
-              midAnim.imageUrl,
-              frameIndex,
-            );
-            if (baseMidImg) {
+          if (midAnim && midAnim.imageUrl) {
+            const isGif = midAnim.isGif || midAnim.imageUrl.toLowerCase().endsWith(".gif");
+            let baseMidImg: any = isGif
+              ? animManager.getGifFrame(
+                  midAnim.imageUrl,
+                  frameIndex,
+                )
+              : animManager.loadTexture(midAnim.imageUrl);
+            if (baseMidImg && (baseMidImg.width > 0 || baseMidImg.complete)) {
               let midImg = baseMidImg;
               if (family?.color && family.color !== "#ffffff") {
                 midImg = animManager.getTintedImg(
@@ -4223,8 +4370,51 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             if (family.beamOpacity !== undefined) {
               ctx.globalAlpha = family.beamOpacity;
             }
+
+            const glowQual = (animManager as any).getGlowQuality ? (animManager as any).getGlowQuality() : 'NORMAL';
+            if (glowQual !== 'DISABLED') {
+              const isUltra = glowQual === 'ULTRA';
+              const beamGlowColor =
+                (family.glowColor && family.glowColor.trim() !== "")
+                  ? family.glowColor
+                  : (family.color ? family.color : '#3b82f6');
+              const defaultBlur = isUltra ? 28 : 16;
+              const baseRadius = family.glowRadius ?? family.glowBlur ?? defaultBlur;
+              const intensity = family.glowIntensity ?? 1.0;
+              const beamGlowBlur = Math.max(12, Math.round(baseRadius * intensity));
+
+              ctx.shadowColor = beamGlowColor;
+              ctx.shadowBlur = beamGlowBlur;
+            }
           }
-          ctx.drawImage(tempCanvas, 0, 0);
+          if (tempCanvas && tempCanvas.width > 0 && tempCanvas.height > 0) {
+            ctx.drawImage(tempCanvas, 0, 0);
+          }
+
+          if (family) {
+            const beamGlowColor =
+              (family.glowColor && family.glowColor.trim() !== "")
+                ? family.glowColor
+                : (family.color && family.color !== '#ffffff' ? family.color : '#3b82f6');
+
+            const drawEndX = Math.max(midLeft, pWidth);
+            const particleBeamWidth = drawEndX + (endAnim ? endW * 0.75 : 0);
+            const midOffsetX = midAnim?.offsetX || 0;
+            const midOffsetY = midAnim?.offsetY || 0;
+
+            animManager.drawEnergyParticles(ctx, {
+              x: kiX + (isFacingRight ? midOffsetX : -midOffsetX),
+              y: bStartY + midOffsetY,
+              width: particleBeamWidth,
+              height: 80 * (midAnim?.scale || 2.2),
+              glowColor: beamGlowColor,
+              count: 30,
+              facingRight: isFacingRight,
+              isBeam: true,
+              opacity: family.beamOpacity ?? 1.0,
+              rotation: midAnim?.rotation ?? 0
+            });
+          }
           ctx.restore();
         }
         ctx.restore(); // Dynamic filters/style outer save/restore block
@@ -4241,18 +4431,26 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       }
     }
 
-    // Draw Aura behind the character only if in the Aura/System editor tab
-    if (
-      (activeTab === "AURAS" ||
-      (activeTab === "BEAMS_MANAGER" && activeManagerClass === "AURA")) &&
-      activeTab !== "VFX"
-    ) {
-      const activeAuraKeyToForce =
-        activeTab === "AURAS"
-          ? selectedAuraKey
-          : activeTab === "BEAMS_MANAGER" && activeManagerClass === "AURA"
-            ? selectedAuraKey
-            : undefined;
+    // Draw Aura behind the character whenever in Aura Editor or configured on character state in Combat mode
+    const animConfigForAura = previewCharWithAnim.spriteConfig?.animations?.[characterStateKey];
+    const hasAuraKey = animConfigForAura && (animConfigForAura as any).auraConfigKey;
+    const isChargingOrAuraState = characterStateKey?.toLowerCase().includes("carregando") ||
+      characterStateKey?.toLowerCase().includes("charge") ||
+      characterStateKey?.toLowerCase().includes("sparking") ||
+      characterStateKey?.toLowerCase().includes("aura") ||
+      characterStateKey?.toLowerCase().includes("transform");
+
+    const shouldDrawAuraInPreview =
+      isAuraTab ||
+      (activeCategory === "CHARACTER" && (hasAuraKey || isChargingOrAuraState));
+
+    if (shouldDrawAuraInPreview) {
+      const activeAuraKeyToForce = isAuraTab
+        ? selectedAuraKey
+        : hasAuraKey
+          ? (animConfigForAura as any).auraConfigKey
+          : undefined;
+
       animManager.drawPlayerAura(
         ctx,
         previewCharWithAnim,
@@ -4262,15 +4460,30 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
         PLAYER_WIDTH,
         PLAYER_HEIGHT,
         true, // facingRight
-        false, // sparkingActive
+        characterStateKey?.toLowerCase().includes("sparking"), // sparkingActive
         1.0, // scaleH
         1.0, // scaleW
+        activeAuraKeyToForce,
+      );
+
+      animManager.drawPlayerAuraParticles(
+        ctx,
+        previewCharWithAnim,
+        characterStateKey as PlayerState,
+        centerX - PLAYER_WIDTH / 2,
+        centerY - PLAYER_HEIGHT / 2,
+        PLAYER_WIDTH,
+        PLAYER_HEIGHT,
+        true,
+        characterStateKey?.toLowerCase().includes("sparking"),
+        1.0,
+        1.0,
         activeAuraKeyToForce,
       );
     }
 
     // Draw Character using attackContext if editing a beam, otherwise default
-    if (activeTab === "VFX") {
+    if (isVfxTab) {
       // Draw ONLY the VFX from config, applying its specific filters and transformations
       if (config && config.imageUrl) {
         ctx.save();
@@ -4285,6 +4498,14 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           if (filters) ctx.filter = filters.trim();
           
           if (effectConfig.effectOpacity !== undefined) ctx.globalAlpha = effectConfig.effectOpacity;
+
+          if (effectConfig.glowColor || effectConfig.glowRadius !== undefined || effectConfig.glowBlur !== undefined || effectConfig.glowIntensity !== undefined) {
+            const glowColor = effectConfig.glowColor || effectConfig.color || "#10b981";
+            const baseRadius = effectConfig.glowRadius ?? effectConfig.glowBlur ?? 14;
+            const intensity = effectConfig.glowIntensity ?? 1.0;
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = Math.max(1, Math.round(baseRadius * intensity));
+          }
         }
 
         const finalScaleX = (config.scale || 1) * (effectConfig?.effectScaleX ?? 1);
@@ -4323,30 +4544,13 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       );
     }
 
-    ctx.fillStyle = "white";
-    ctx.font = "16px sans-serif";
-    ctx.fillText("characterStateKey: " + characterStateKey, 10, 30);
-    ctx.fillText("config.imageUrl: " + config.imageUrl, 10, 50);
-
-    const testCache = animManager.getGifFrameCount(config.imageUrl);
-    ctx.fillText("GIF CACHE count: " + testCache, 10, 70);
-    ctx.fillText("Anim exists in mapping?: " + !!characterConfig, 10, 90);
-
-    ctx.fillText("animManager.isLoading?: " + animManager.isLoading(), 10, 110);
-    ctx.fillText(
-      "Image URL starts with: " +
-        (config.imageUrl ? config.imageUrl.substring(0, 30) : "none"),
-      10,
-      130,
-    );
-
     // Output debug to window so we can view it
     if (!(window as any).previewDebugLogged) {
       (window as any).previewDebugLogged = true;
       console.log("== PREVIEW DEBUG ==");
       console.log("ImageUrl: ", config.imageUrl);
       console.log("isGif: ", config.isGif);
-      console.log("GIF Cache count: ", testCache);
+      console.log("GIF Cache count: ", animManager.getGifFrameCount(config.imageUrl));
       console.log("animManager isLoading: ", animManager.isLoading());
       console.log("Character Config exists?: ", !!characterConfig);
       if (characterConfig) {
@@ -4579,7 +4783,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     ctx.restore();
 
     // Draw Ki Blast Origin UI elements on top of the character if defined
-    if (hasAnyKiOrigin) {
+    if (hasAnyKiOrigin && (isBeamOrProjTab || activeCategory === "CHARACTER")) {
       ctx.fillStyle = "#3b82f6";
       ctx.beginPath();
       ctx.arc(kiX, kiY, 10, 0, Math.PI * 2); // Make it slightly larger so it's easily clickable
@@ -4594,7 +4798,6 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
       // Render custom visual handles for each draggable beam/projectile part when in BEAM or PROJECTILE editor tabs
       if (isBeamOrProjTab) {
-        const isBeamTab = activeTab === "BEAM";
         const projFamilyId = selectedProjectileFamilyId || selectedBeamFamilyId;
         const family = isBeamTab
           ? localBeamDatabase[selectedBeamFamilyId]
@@ -4611,14 +4814,14 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
                 ?.projectileConfig ??
               selectedChar.spriteConfig?.animations?.[selectedState]
                 ?.beamConfig);
-          const mergedStart = family.start
-            ? { ...family.start, ...(charOverrides?.start as any) }
+          const mergedStart = (family as any).start
+            ? { ...(family as any).start, ...(charOverrides?.start as any) }
             : undefined;
-          const mergedMiddle = family.middle
-            ? { ...family.middle, ...(charOverrides?.middle as any) }
-            : family.middle;
-          const mergedEnd = family.end
-            ? { ...family.end, ...(charOverrides?.end as any) }
+          const mergedMiddle = (family as any).middle
+            ? { ...(family as any).middle, ...(charOverrides?.middle as any) }
+            : (family as any).middle;
+          const mergedEnd = (family as any).end
+            ? { ...(family as any).end, ...(charOverrides?.end as any) }
             : undefined;
 
           const actStart =
@@ -4660,14 +4863,8 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           const endYLoc = bStartY + 5 + midOffsetY + (actEnd?.offsetY || 0);
 
           const isProjectile = (() => {
-            if (activeTab === "BEAM") return false;
-            if (
-              activeTab === "KI_BLAST" ||
-              activeTab === "GENKIDAMA" ||
-              activeTab === "fechosenergia" ||
-              activeTab === "PROJECTILE"
-            )
-              return true;
+            if (isBeamTab) return false;
+            if (isProjTab) return true;
             const anim = selectedChar.spriteConfig?.animations?.[selectedState];
             const beamId = anim?.createsBeam;
             if (beamId) {
@@ -4840,7 +5037,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
         oppY,
         PLAYER_WIDTH * oppScale,
         PLAYER_HEIGHT * oppScale,
-        !selectedChar.facingRight, // Face opposite
+        !(selectedChar as any).facingRight, // Face opposite
         Math.floor(frameIndex / 2) % 4, // Simple pulse
         false,
       );
@@ -5007,10 +5204,10 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       const globalHitboxXOff = selectedChar.spriteConfig?.hitboxOffsetX || 0;
       const globalHitboxYOff = selectedChar.spriteConfig?.hitboxOffsetY || 0;
 
-      const hW = isEditingBeam ? (characterConfig.hitboxWidth ?? globalHitboxW) : (config.hitboxWidth ?? globalHitboxW);
-      const hH = isEditingBeam ? (characterConfig.hitboxHeight ?? globalHitboxH) : (config.hitboxHeight ?? globalHitboxH);
-      const hXOff = isEditingBeam ? (characterConfig.hitboxOffsetX ?? globalHitboxXOff) : (config.hitboxOffsetX ?? globalHitboxXOff);
-      const hYOff = isEditingBeam ? (characterConfig.hitboxOffsetY ?? globalHitboxYOff) : (config.hitboxOffsetY ?? globalHitboxYOff);
+      const hW = isEditingBeam ? ((characterConfig as any).hitboxWidth ?? globalHitboxW) : ((config as any).hitboxWidth ?? globalHitboxW);
+      const hH = isEditingBeam ? ((characterConfig as any).hitboxHeight ?? globalHitboxH) : ((config as any).hitboxHeight ?? globalHitboxH);
+      const hXOff = isEditingBeam ? ((characterConfig as any).hitboxOffsetX ?? globalHitboxXOff) : ((config as any).hitboxOffsetX ?? globalHitboxXOff);
+      const hYOff = isEditingBeam ? ((characterConfig as any).hitboxOffsetY ?? globalHitboxYOff) : ((config as any).hitboxOffsetY ?? globalHitboxYOff);
 
       const hX = centerX - PLAYER_WIDTH / 2 + hXOff;
       const hY = centerY - PLAYER_HEIGHT / 2 + hYOff;
@@ -5098,11 +5295,11 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           isProjTab ||
           !!selectedProjectileFamilyId;
         let helperKiX =
-          characterConfig?.kiOriginX ??
+          (characterConfig as any)?.kiOriginX ??
           selectedChar.spriteConfig?.kiOriginX ??
           76;
         let helperKiY =
-          characterConfig?.kiOriginY ??
+          (characterConfig as any)?.kiOriginY ??
           selectedChar.spriteConfig?.kiOriginY ??
           125;
 
@@ -5117,7 +5314,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           selectedChar.spriteConfig?.animations?.[midKey] ?? config;
 
         const isPartTabActive =
-          activeTab === "BEAM" || activeTab === "PROJECTILE";
+          (activeTab as string) === "BEAM" || (activeTab as string) === "PROJECTILE";
         const expStartKiX = isPartTabActive
           ? undefined
           : selectedState === startKey
@@ -5166,7 +5363,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             animFrame: frameIndex,
             customOffsetX: 0,
             customOffsetY: 0,
-            verticalScale: config?.verticalScale ?? 1.0,
+            verticalScale: (config as any)?.verticalScale ?? 1.0,
           };
 
           const mockEngine = {
@@ -5240,9 +5437,8 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
         config.projectileHeight ||
         config.projectileOffsetX !== undefined ||
         config.projectileOffsetY !== undefined ||
-        activeTab === "BEAM" ||
-        activeTab === "PROJECTILE" ||
-        activeTab === "BEAM" ||
+        (activeTab as string) === "BEAM" ||
+        (activeTab as string) === "PROJECTILE" ||
         !!(
           config &&
           config.createsBeam &&
@@ -5299,8 +5495,8 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       };
       keyManager.registerBeam(
         destinationBeamKey,
-        destCurrent.baseBeamId || "BEAM",
-        destCurrent.name || destinationBeamKey,
+        (destCurrent as any).baseBeamId || "BEAM",
+        (destCurrent as any).name || destinationBeamKey,
         destProps,
       );
     }
@@ -5320,6 +5516,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     const resetProps = {
       ...current,
       color: "#ffffff",
+      glowColor: undefined,
       beamBrightness: 1,
       beamOpacity: 1,
       beamHueRotate: 0,
@@ -5344,8 +5541,8 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       };
       keyManager.registerBeam(
         destinationBeamKey,
-        destCurrent.baseBeamId || "BEAM",
-        destCurrent.name || destinationBeamKey,
+        (destCurrent as any).baseBeamId || "BEAM",
+        (destCurrent as any).name || destinationBeamKey,
         destProps,
       );
     }
@@ -5374,7 +5571,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     keyManager.registerBeam(
       beamKey,
       baseId,
-      current.name || originalTemplate.name || beamKey,
+      (current as any).name || originalTemplate.name || beamKey,
       restoredProps,
     );
 
@@ -5386,8 +5583,8 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       };
       keyManager.registerBeam(
         destinationBeamKey,
-        destCurrent.baseBeamId || "BEAM",
-        destCurrent.name || destinationBeamKey,
+        (destCurrent as any).baseBeamId || "BEAM",
+        (destCurrent as any).name || destinationBeamKey,
         destProps,
       );
     }
@@ -5412,22 +5609,30 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
   const handleAuraStyleChange = (
     auraKey: string,
-    field: string,
-    value: any,
+    fieldOrUpdates: string | Record<string, any>,
+    value?: any,
   ) => {
-    const current = localAuraDatabase[auraKey];
+    const keyManager = AuraConfigKeyManager.getInstance();
+    const current = keyManager.getAuraConfig(auraKey) || localAuraDatabase[auraKey];
     if (!current) return;
+
+    const updates = typeof fieldOrUpdates === "object"
+      ? fieldOrUpdates
+      : { [fieldOrUpdates]: value };
 
     const updatedProps = {
       ...current,
-      [field]: value,
+      ...updates,
     };
 
-    const keyManager = AuraConfigKeyManager.getInstance();
-    const baseId = updatedProps.baseAuraId || "AURA_001";
+    const baseId = updatedProps.auraSprite || updatedProps.baseAuraId || "AURA_001";
+    // Sync baseAuraId if auraSprite is updated
+    if (updates.auraSprite) {
+      updatedProps.baseAuraId = updates.auraSprite;
+    }
     const displayName = updatedProps.name || auraKey;
 
-    const updatedAura = keyManager.registerAura(
+    keyManager.registerAura(
       auraKey,
       baseId,
       displayName,
@@ -5437,9 +5642,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     setLocalAuraDatabase(keyManager.getAllAuras());
 
     // Sync character animation auraConfigKey linkage!
-    if (field === "ownerAnimationKey" || field === "ownerCharacterId") {
-      const charId = field === "ownerCharacterId" ? value : current.ownerCharacterId;
-      const animKey = field === "ownerAnimationKey" ? value : current.ownerAnimationKey;
+    if (updates.ownerAnimationKey !== undefined || updates.ownerCharacterId !== undefined) {
+      const charId = updates.ownerCharacterId !== undefined ? updates.ownerCharacterId : current.ownerCharacterId;
+      const animKey = updates.ownerAnimationKey !== undefined ? updates.ownerAnimationKey : current.ownerAnimationKey;
 
       if (charId && selectedChar && selectedChar.id === charId) {
         setSelectedChar((prev) => {
@@ -5463,6 +5668,11 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             };
           }
 
+          const baseChar = BASE_CHARACTERS.find((c) => c.id === charId);
+          if (baseChar && baseChar.spriteConfig) {
+            baseChar.spriteConfig.animations = updatedAnimations;
+          }
+
           return {
             ...prev,
             spriteConfig: {
@@ -5481,6 +5691,10 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
     const resetProps: Partial<ConfiguredAura> = {
       color: "#ffffff",
+      glowColor: undefined,
+      glowBlur: undefined,
+      glowRadius: undefined,
+      glowIntensity: 1.0,
       auraHueRotate: 0,
       auraSaturate: 1,
       auraBrightness: 1,
@@ -5489,9 +5703,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     };
 
     const keyManager = AuraConfigKeyManager.getInstance();
-    const updatedAura = keyManager.registerAura(
+    keyManager.registerAura(
       auraKey,
-      current.baseAuraId || "AURA_001",
+      (current as any).auraSprite || current.baseAuraId || "AURA_001",
       current.name,
       resetProps,
     );
@@ -5501,21 +5715,22 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
   const handleEffectStyleChange = (
     effectKey: string,
-    field: string,
-    value: any,
+    fieldOrUpdates: string | Record<string, any>,
+    value?: any,
   ) => {
-    let current = localEffectDatabase[effectKey];
-    if (!current) {
-      current = EffectConfigKeyManager.getInstance().getEffect(effectKey);
-    }
+    const keyManager = EffectConfigKeyManager.getInstance();
+    let current = keyManager.getEffect(effectKey) || localEffectDatabase[effectKey];
     if (!current) return;
+
+    const updates = typeof fieldOrUpdates === "object"
+      ? fieldOrUpdates
+      : { [fieldOrUpdates]: value };
 
     const updatedProps = {
       ...current,
-      [field]: value,
+      ...updates,
     };
 
-    const keyManager = EffectConfigKeyManager.getInstance();
     const baseId = updatedProps.baseEffectId || "EFFECT_POEIRA_01";
     const displayName = updatedProps.name || effectKey;
 
@@ -5529,9 +5744,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     setLocalEffectDatabase(keyManager.getAllEffects());
 
     // Sync character animation effectConfigKey linkage!
-    if (field === "ownerAnimationKey" || field === "ownerCharacterId") {
-      const charId = field === "ownerCharacterId" ? value : current.ownerCharacterId;
-      const animKey = field === "ownerAnimationKey" ? value : current.ownerAnimationKey;
+    if (updates.ownerAnimationKey !== undefined || updates.ownerCharacterId !== undefined) {
+      const charId = updates.ownerCharacterId !== undefined ? updates.ownerCharacterId : current.ownerCharacterId;
+      const animKey = updates.ownerAnimationKey !== undefined ? updates.ownerAnimationKey : current.ownerAnimationKey;
 
       if (charId && selectedChar && selectedChar.id === charId) {
         setSelectedChar((prev) => {
@@ -5573,6 +5788,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
     const resetProps: Partial<ConfiguredEffect> = {
       color: "#ffffff",
+      glowColor: undefined,
       effectHueRotate: 0,
       effectSaturate: 1,
       effectBrightness: 1,
@@ -5598,6 +5814,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     const resetProps = {
       ...current,
       color: "#ffffff",
+      glowColor: undefined,
       projectileBrightness: 1,
       projectileOpacity: 1,
       projectileHueRotate: 0,
@@ -5646,7 +5863,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       keyManager.registerProjectile(
         destinationProjectileKey,
         destBaseId,
-        destCurrent.name || destinationProjectileKey,
+        (destCurrent as any).name || destinationProjectileKey,
         destProps,
       );
     }
@@ -5687,7 +5904,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     keyManager.registerProjectile(
       projKey,
       baseId,
-      current.name || originalTemplate.name || projKey,
+      (current as any).name || originalTemplate.name || projKey,
       restoredProps,
     );
 
@@ -5712,7 +5929,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       keyManager.registerProjectile(
         destinationProjectileKey,
         destBaseId,
-        destCurrent.name || destinationProjectileKey,
+        (destCurrent as any).name || destinationProjectileKey,
         destProps,
       );
     }
@@ -5773,7 +5990,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     const updatedProj = keyManager.registerProjectile(
       projKey,
       baseIdItem,
-      current.name || projKey,
+      (current as any).name || projKey,
       updatedProps,
     );
 
@@ -5798,7 +6015,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       keyManager.registerProjectile(
         destinationProjectileKey,
         destBaseId,
-        destCurrent.name || destinationProjectileKey,
+        (destCurrent as any).name || destinationProjectileKey,
         destProps,
       );
     }
@@ -5837,8 +6054,13 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
           const baseDefaults =
             AuraConfigKeyManager.stdDefaults[selectedVal] || {};
           const clonedProps: Partial<ConfiguredAura> = {
+            auraSprite: selectedVal,
             baseAuraId: selectedVal,
             color: baseAura.color ?? baseDefaults.color ?? "#ffffff",
+            glowColor: baseAura.glowColor ?? (baseDefaults as any).glowColor,
+            glowBlur: baseAura.glowBlur ?? (baseDefaults as any).glowBlur,
+            glowRadius: baseAura.glowRadius ?? (baseDefaults as any).glowRadius,
+            glowIntensity: baseAura.glowIntensity ?? (baseDefaults as any).glowIntensity,
             auraHueRotate:
               baseAura.auraHueRotate ?? baseDefaults.auraHueRotate ?? 0,
             auraSaturate:
@@ -6115,9 +6337,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
                 ...existingDestBeam,
                 id: destinationBeamKey,
                 configKey: destinationBeamKey,
-                start: existingDestBeam.start ? { ...existingDestBeam.start } : {},
-                middle: existingDestBeam.middle ? { ...existingDestBeam.middle } : {},
-                end: existingDestBeam.end ? { ...existingDestBeam.end } : {},
+                start: (existingDestBeam as any).start ? { ...(existingDestBeam as any).start } : {},
+                middle: (existingDestBeam as any).middle ? { ...(existingDestBeam as any).middle } : {},
+                end: (existingDestBeam as any).end ? { ...(existingDestBeam as any).end } : {},
               };
               updatedDestBeam[selectedBeamPart as "start" | "middle" | "end"] = {
                 ...updatedDestBeam[selectedBeamPart as "start" | "middle" | "end"],
@@ -6144,12 +6366,12 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
               keyManager.registerBeam(
                 destinationBeamKey,
-                existingDestBeam.baseBeamId || "BEAM",
+                (existingDestBeam as any).baseBeamId || "BEAM",
                 localBeamDatabase[destinationBeamKey]?.name ||
                   destinationBeamKey,
-                updatedDestBeam,
+                updatedDestBeam as any,
               );
-              nextDb[destinationBeamKey] = updatedDestBeam;
+              nextDb[destinationBeamKey] = updatedDestBeam as any;
             }
 
             return nextDb;
@@ -6229,7 +6451,6 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
             }));
 
             setSelectedProjectileFamilyId(newKey);
-            setSelectedBeamFamilyId(newKey);
             return;
           }
 
@@ -6309,7 +6530,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
                 ...newFamily,
                 id: destinationProjectileKey,
                 configKey: destinationProjectileKey,
-              };
+              } as any;
             }
 
             return nextDb;
@@ -6471,8 +6692,11 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       const newChar = { ...prev };
       if (newChar.spriteConfig) {
         const animations = { ...newChar.spriteConfig.animations };
-        const currentConfig = animations[selectedState] || {};
+        const currentConfig = (animations[selectedState] as any) || {};
         animations[nextKey] = {
+          imageUrl: '',
+          frameWidth: 100,
+          frameHeight: 100,
           ...currentConfig,
           frames: currentConfig.frames || 1,
           speed: currentConfig.speed || 5,
@@ -6537,7 +6761,15 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     const characterBeams: Record<string, any> = {};
     const auraKeyManager = AuraConfigKeyManager.getInstance();
     const characterAuras: Record<string, any> = {};
-    const animations = selectedChar.spriteConfig.animations || {};
+    
+    // IMPORTANTE: Mesclar o contexto de animação atual para capturar edições não salvas!
+    const animations = { ...(selectedChar.spriteConfig.animations || {}) };
+    if (characterAnimationContext && selectedState) {
+      animations[selectedState] = {
+        ...animations[selectedState],
+        ...characterAnimationContext
+      };
+    }
 
     const editedAnims: Record<string, any> = {};
     Object.keys(animations).forEach((animKey) => {
@@ -6552,7 +6784,8 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       })();
 
       if (isEdited) {
-        editedAnims[animKey] = animations[animKey];
+        // Clean each animation individually
+        editedAnims[animKey] = cleanObj(animations[animKey]);
       }
     });
 
@@ -6561,36 +6794,34 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       const anim = animations[animKey];
       if (anim && anim.createsBeam) {
         const bId = anim.createsBeam;
-        const beamCfg = localBeamDatabase[bId] || keyManager.getBeamConfig(bId);
+        const beamCfg = localBeamDatabase[bId] || BeamConfigKeyManager.getInstance().getBeamConfig(bId);
         if (beamCfg) {
-          characterBeams[bId] = beamCfg;
+          characterBeams[bId] = cleanObj(beamCfg);
         }
       }
       if (anim && anim.auraConfigKey) {
         const aId = anim.auraConfigKey;
-        const auraCfg = localAuraDatabase[aId] || auraKeyManager.getAuraConfig(aId);
+        const auraCfg = localAuraDatabase[aId] || AuraConfigKeyManager.getInstance().getAuraConfig(aId);
         if (auraCfg) {
-          characterAuras[aId] = auraCfg;
+          const animPath = getAuraAnimationPath(auraCfg);
+          characterAuras[aId] = cleanObj({
+            ...auraCfg,
+            auraSprite: animPath,
+            auraAnimation: animPath,
+            auraUrl: animPath,
+          });
         }
       }
     });
 
-    const cleaned = cleanObj(editedAnims);
-    const formatJson = JSON.stringify(cleaned, null, 4);
+    const formatJson = JSON.stringify(editedAnims, null, 4);
 
     let extraExplanationText = "";
     if (Object.keys(characterBeams).length > 0) {
-      extraExplanationText += `\n\n// =========================================================================\n// 📦 BANCO DE BEAMS CUSTOMIZADOS DESTE PERSONAGEM\n// (Adicione ao arquivo BeamDatabase.ts se forem novos Beams customizados):\n// =========================================================================\nconst My_Character_Beams = ${JSON.stringify(cleanObj(characterBeams), null, 4)};`;
+      extraExplanationText += `\n\n// =========================================================================\n// 📦 BANCO DE BEAMS CUSTOMIZADOS DESTE PERSONAGEM\n// (Adicione ao arquivo BeamDatabase.ts se forem novos Beams customizados):\n// =========================================================================\nconst My_Character_Beams = ${JSON.stringify(characterBeams, null, 4)};`;
     }
     if (Object.keys(characterAuras).length > 0) {
-      const cleanedAuras: Record<string, any> = {};
-      Object.keys(characterAuras).forEach((aId) => {
-        const auraCfg = JSON.parse(JSON.stringify(characterAuras[aId]));
-        delete auraCfg.id;
-        delete auraCfg.configKey;
-        cleanedAuras[aId] = auraCfg;
-      });
-      extraExplanationText += `\n\n// =========================================================================\n// ✨ BANCO DE AURAS CUSTOMIZADAS DESTE PERSONAGEM\n// (Adicione ao banco de dados ou inicializador do AuraConfigKeyManager):\n// =========================================================================\nconst My_Character_Auras = ${JSON.stringify(cleanObj(cleanedAuras), null, 4)};`;
+      extraExplanationText += `\n\n// =========================================================================\n// ✨ BANCO DE AURAS CUSTOMIZADAS DESTE PERSONAGEM\n// (Adicione ao banco de dados ou inicializador do AuraConfigKeyManager):\n// =========================================================================\nconst My_Character_Auras = ${JSON.stringify(characterAuras, null, 4)};`;
     }
 
     const clipboardText =
@@ -6640,40 +6871,46 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
     }
 
     if (targetTab === "AURAS") {
-      const currentAura = localAuraDatabase[selectedAuraKey];
+      const currentAura = localAuraDatabase[selectedAuraKey] || AuraConfigKeyManager.getInstance().getAuraConfig(selectedAuraKey);
       if (!currentAura) {
         alert("Nenhuma configuração de Aura selecionada!");
         return;
       }
 
-      const auraDbObj = JSON.parse(JSON.stringify(currentAura));
-      delete auraDbObj.id;
-      delete auraDbObj.configKey;
+      const animPath = getAuraAnimationPath(currentAura);
+      const auraDbObj = cleanObj({
+        ...currentAura,
+        auraSprite: animPath,
+        auraAnimation: animPath,
+        auraUrl: animPath,
+      });
 
       // Resolve correct owner animation key and config for Aura
       let ownerAnimKey = selectedState;
-      let ownerAnimConfig = selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext;
+      // Prioritize characterAnimationContext if it matches the current state
+      let ownerAnimConfig = (characterAnimationContext)
+        ? characterAnimationContext
+        : (selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext);
+
       if (selectedChar?.spriteConfig?.animations) {
         const foundKey = Object.keys(selectedChar.spriteConfig.animations).find(
           (k) => {
-            const animAuraKey = selectedChar.spriteConfig!.animations![k]?.auraConfigKey;
-            return animAuraKey === selectedAuraKey;
+            const anim = (k === selectedState && characterAnimationContext) ? characterAnimationContext : selectedChar.spriteConfig!.animations![k];
+            return anim?.auraConfigKey === selectedAuraKey;
           }
         );
         if (foundKey) {
           ownerAnimKey = foundKey;
-          ownerAnimConfig = selectedChar.spriteConfig.animations[foundKey];
+          ownerAnimConfig = (foundKey === selectedState && characterAnimationContext) ? characterAnimationContext : selectedChar.spriteConfig.animations[foundKey];
         }
       }
 
       const animObj = ownerAnimConfig
         ? {
-            [ownerAnimKey]: {
+            [ownerAnimKey]: cleanObj({
               ...ownerAnimConfig,
-              offsetX: ownerAnimConfig.offsetX || 0,
-              offsetY: ownerAnimConfig.offsetY || 0,
               auraConfigKey: selectedAuraKey,
-            },
+            }),
           }
         : null;
 
@@ -6687,7 +6924,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 // =========================================================================
 
 ${animText}// 2. CONFIGURAÇÃO DA AURA EXCLUSIVA (Adicione ao banco de dados ou inicializador do AuraConfigKeyManager):
-"${selectedAuraKey}": ${JSON.stringify(cleanObj(auraDbObj), null, 4)}
+"${selectedAuraKey}": ${JSON.stringify(auraDbObj, null, 4)}
 `;
 
       try {
@@ -6705,7 +6942,9 @@ ${animText}// 2. CONFIGURAÇÃO DA AURA EXCLUSIVA (Adicione ao banco de dados ou
     if (targetTab === "BEAM") {
       const currentBeam =
         localBeamDatabase[actualBeamId] ||
-        localBeamDatabase[selectedBeamFamilyId];
+        localBeamDatabase[selectedBeamFamilyId] ||
+        BeamConfigKeyManager.getInstance().getBeamConfig(actualBeamId) ||
+        BeamConfigKeyManager.getInstance().getBeamConfig(selectedBeamFamilyId);
       if (!currentBeam) return;
 
       const overridesObj: any = {
@@ -6720,43 +6959,39 @@ ${animText}// 2. CONFIGURAÇÃO DA AURA EXCLUSIVA (Adicione ao banco de dados ou
       if (currentBeam.beamHueRotate !== undefined) overridesObj.beamHueRotate = currentBeam.beamHueRotate;
       if (currentBeam.beamSaturate !== undefined) overridesObj.beamSaturate = currentBeam.beamSaturate;
       if (currentBeam.beamContrast !== undefined) overridesObj.beamContrast = currentBeam.beamContrast;
-      if (currentBeam.rotation !== undefined) overridesObj.rotation = currentBeam.rotation;
+      if ((currentBeam as any).rotation !== undefined) overridesObj.rotation = (currentBeam as any).rotation;
       if (currentBeam.name !== undefined) overridesObj.name = currentBeam.name;
 
-      const beamDbObj = JSON.parse(JSON.stringify(currentBeam));
-      delete beamDbObj.id;
-      delete beamDbObj.configKey;
-      delete beamDbObj.baseBeamId;
-      delete beamDbObj.ownerCharacterId;
-      delete beamDbObj.ownerAnimationKey;
-      delete beamDbObj.ownerCharacterName;
+      const beamDbObj = cleanObj(currentBeam);
 
-      // Resolve correct owner animation key and config instead of just selectedState
+      // Resolve correct owner animation key and config
       let ownerAnimKey = selectedState;
-      let ownerAnimConfig = selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext;
+      let ownerAnimConfig = (characterAnimationContext)
+        ? characterAnimationContext
+        : (selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext);
+
       if (selectedChar?.spriteConfig?.animations) {
         const foundKey = Object.keys(selectedChar.spriteConfig.animations).find(
           (k) => {
-            const animBeam = selectedChar.spriteConfig!.animations![k]?.createsBeam;
+            const anim = (k === selectedState && characterAnimationContext) ? characterAnimationContext : selectedChar.spriteConfig!.animations![k];
+            const animBeam = anim?.createsBeam;
             return animBeam === selectedBeamFamilyId || 
-                   animBeam === destinationBeamKey || 
+                   animBeam === actualBeamId || 
                    animBeam === "BEAM";
           }
         );
         if (foundKey) {
           ownerAnimKey = foundKey;
-          ownerAnimConfig = selectedChar.spriteConfig.animations[foundKey];
+          ownerAnimConfig = (foundKey === selectedState && characterAnimationContext) ? characterAnimationContext : selectedChar.spriteConfig.animations[foundKey];
         }
       }
 
       const animObj = ownerAnimConfig
         ? {
-            [ownerAnimKey]: {
+            [ownerAnimKey]: cleanObj({
               ...ownerAnimConfig,
-              offsetX: ownerAnimConfig.offsetX || 0,
-              offsetY: ownerAnimConfig.offsetY || 0,
               createsBeam: actualBeamId,
-            },
+            }),
           }
         : null;
 
@@ -6773,7 +7008,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e cole no arquivo *_Beams.ts do 
 "${actualBeamId}": ${JSON.stringify(cleanObj(overridesObj), null, 4)},
 
 // 3. SE FOR UM BEAM CUSTOMIZADO / NOVA COR, ADICIONE ISSO NO BANCO DE BEAMS (BeamDatabase.ts):
-"${actualBeamId}": ${JSON.stringify(cleanObj(beamDbObj), null, 4)}
+"${actualBeamId}": ${JSON.stringify(beamDbObj, null, 4)}
 `;
 
       try {
@@ -6791,7 +7026,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e cole no arquivo *_Beams.ts do 
     if (targetTab === "GENKIDAMA") {
       const currentProj =
         localProjectileDatabase[actualProjectileId] ||
-        localProjectileDatabase[selectedProjectileFamilyId];
+        localProjectileDatabase[selectedProjectileFamilyId] ||
+        ProjectileConfigKeyManager.getInstance().getProjectileConfig(actualProjectileId) ||
+        ProjectileConfigKeyManager.getInstance().getProjectileConfig(selectedProjectileFamilyId);
       if (!currentProj) return;
 
       const projectileDbObj = JSON.parse(JSON.stringify(currentProj));
@@ -6820,7 +7057,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e cole no arquivo *_Beams.ts do 
         endGif = explodeProj.middle.imageUrl || endGif;
       }
 
-      const charAnim = selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext;
+      const charAnim = (characterAnimationContext)
+        ? characterAnimationContext
+        : (selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext);
 
       const clipboardText = `// =========================================================================
 // CONFIGURAÇÕES DA GENKIDAMA COM CHAVE EXCLUSIVA (${actualProjectileId})
@@ -6828,11 +7067,12 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e cole no arquivo *_Beams.ts do 
 // =========================================================================
 
 // 1. ANIMAÇÕES DO PERSONAGEM (Substitua ou adicione no objeto "animations" dentro do arquivo do seu personagem):
-"${selectedState}": {
-    "imageUrl": "${charAnim?.imageUrl || ""}",
-    "frames": ${charAnim?.frames || 1},
-    "projectileId": "${actualProjectileId}"
-},
+"${selectedState}": ${JSON.stringify(cleanObj({
+    ...charAnim,
+    createsProjectile: actualProjectileId,
+    projectileScale: charAnim?.projectileScale || 1.0,
+    specialAnim: (charAnim as any)?.specialAnim || "genkidama_throw"
+}), null, 4)},
 "GENKIDAMA": {
     "imageUrl": "${middleGif}",
     "frames": 1,
@@ -6865,7 +7105,9 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e cole no arquivo *_Beams.ts do 
     if (targetTab === "KI_BLAST" || targetTab === "fechosenergia") {
       const currentProj =
         localProjectileDatabase[actualProjectileId] ||
-        localProjectileDatabase[selectedProjectileFamilyId];
+        localProjectileDatabase[selectedProjectileFamilyId] ||
+        ProjectileConfigKeyManager.getInstance().getProjectileConfig(actualProjectileId) ||
+        ProjectileConfigKeyManager.getInstance().getProjectileConfig(selectedProjectileFamilyId);
       if (!currentProj) return;
 
       const overridesObj: any = {
@@ -6875,26 +7117,21 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e cole no arquivo *_Beams.ts do 
       if (currentProj.color !== undefined) overridesObj.color = currentProj.color;
       if (currentProj.projectileOpacity !== undefined) overridesObj.projectileOpacity = currentProj.projectileOpacity;
       if (currentProj.projectileBrightness !== undefined) overridesObj.projectileBrightness = currentProj.projectileBrightness;
-      if (currentProj.rotation !== undefined) overridesObj.rotation = currentProj.rotation;
+      if ((currentProj as any).rotation !== undefined) overridesObj.rotation = (currentProj as any).rotation;
       if (currentProj.name !== undefined) overridesObj.name = currentProj.name;
 
-      const projectileDbObj = JSON.parse(JSON.stringify(currentProj));
-      delete projectileDbObj.id;
-      delete projectileDbObj.configKey;
-      delete projectileDbObj.baseProjectileId;
-      delete projectileDbObj.ownerCharacterId;
-      delete projectileDbObj.ownerAnimationKey;
-      delete projectileDbObj.ownerCharacterName;
+      const projectileDbObj = cleanObj(currentProj);
 
-      const charAnim = selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext;
+      const charAnim = (characterAnimationContext)
+        ? characterAnimationContext
+        : (selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext);
+
       const animObj = charAnim
         ? {
-            [selectedState]: {
+            [selectedState]: cleanObj({
               ...charAnim,
-              offsetX: charAnim.offsetX || 0,
-              offsetY: charAnim.offsetY || 0,
               projectileId: actualProjectileId,
-            },
+            }),
           }
         : null;
 
@@ -6911,7 +7148,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 "${actualProjectileId}": ${JSON.stringify(cleanObj(overridesObj), null, 4)},
 
 // 3. SE FOR UM PROJÉTIL CUSTOMIZADO / NOVA COR, ADICIONE ISSO NO BANCO DE PROJÉTEIS (ProjectileDatabase.ts):
-"${actualProjectileId}": ${JSON.stringify(cleanObj(projectileDbObj), null, 4)}
+"${actualProjectileId}": ${JSON.stringify(projectileDbObj, null, 4)}
 `;
 
       try {
@@ -6926,20 +7163,14 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
       return;
     }
 
-    if (targetTab === "VFX" || targetTab === "EFFECT") {
-      const currentEffect = localEffectDatabase[selectedEffectKey];
+    if (targetTab === "VFX" || (targetTab as string) === "EFFECT") {
+      const currentEffect = localEffectDatabase[selectedEffectKey] || EffectConfigKeyManager.getInstance().getEffect(selectedEffectKey);
       if (!currentEffect) {
         alert("Nenhuma configuração de Efeito/VFX selecionada!");
         return;
       }
 
-      const effectDbObj = JSON.parse(JSON.stringify(currentEffect));
-      delete effectDbObj.id;
-      delete effectDbObj.configKey;
-      delete effectDbObj.baseEffectId;
-      delete effectDbObj.ownerCharacterId;
-      delete effectDbObj.ownerAnimationKey;
-      delete effectDbObj.ownerCharacterName;
+      const effectDbObj = cleanObj(currentEffect);
 
       // Garantir que color esteja presente para exportação
       if (!effectDbObj.color) {
@@ -6948,28 +7179,29 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 
       // Resolve correct owner animation key and config for VFX
       let ownerAnimKey = selectedState;
-      let ownerAnimConfig = selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext;
+      let ownerAnimConfig = (characterAnimationContext)
+        ? characterAnimationContext
+        : (selectedChar?.spriteConfig?.animations?.[selectedState] || characterAnimationContext);
+
       if (selectedChar?.spriteConfig?.animations) {
         const foundKey = Object.keys(selectedChar.spriteConfig.animations).find(
           (k) => {
-            const animEffectKey = selectedChar.spriteConfig!.animations![k]?.effectConfigKey;
-            return animEffectKey === selectedEffectKey;
+            const anim = (k === selectedState && characterAnimationContext) ? characterAnimationContext : selectedChar.spriteConfig!.animations![k];
+            return anim?.effectConfigKey === selectedEffectKey;
           }
         );
         if (foundKey) {
           ownerAnimKey = foundKey;
-          ownerAnimConfig = selectedChar.spriteConfig.animations[foundKey];
+          ownerAnimConfig = (foundKey === selectedState && characterAnimationContext) ? characterAnimationContext : selectedChar.spriteConfig.animations[foundKey];
         }
       }
 
       const animObj = ownerAnimConfig
         ? {
-            [ownerAnimKey]: {
+            [ownerAnimKey]: cleanObj({
               ...ownerAnimConfig,
-              offsetX: ownerAnimConfig.offsetX || 0,
-              offsetY: ownerAnimConfig.offsetY || 0,
               effectConfigKey: selectedEffectKey,
-            },
+            }),
           }
         : null;
 
@@ -6983,7 +7215,7 @@ ${animText}// 2. OVERRIDES DO PERSONAGEM (Copie e adicione ao arquivo *_Beams.ts
 // =========================================================================
 
 ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de dados ou inicializador do EffectConfigKeyManager):
-"${selectedEffectKey}": ${JSON.stringify(cleanObj(effectDbObj), null, 4)}
+"${selectedEffectKey}": ${JSON.stringify(effectDbObj, null, 4)}
 `;
 
       try {
@@ -7039,12 +7271,17 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
     if (auraId) {
       const currentAura = localAuraDatabase[auraId] || AuraConfigKeyManager.getInstance().getAuraConfig(auraId);
       if (currentAura) {
+        const animPath = getAuraAnimationPath(currentAura);
         const auraDbObj = JSON.parse(JSON.stringify(currentAura));
         delete auraDbObj.id;
         delete auraDbObj.configKey;
         delete auraDbObj.ownerCharacterId;
         delete auraDbObj.ownerAnimationKey;
         delete auraDbObj.ownerCharacterName;
+
+        auraDbObj.auraSprite = animPath;
+        auraDbObj.auraAnimation = animPath;
+        auraDbObj.auraUrl = animPath;
 
         auraText = `\n\n// ========================================== \n// ✨ AURA VINCULADA / ATRIBUÍDA A ESTA ANIMAÇÃO (${auraId}):\n// Adicione ao banco de dados ou inicializador do AuraConfigKeyManager:\n"${auraId}": ${JSON.stringify(cleanObj(auraDbObj), null, 4)}`;
       }
@@ -7302,8 +7539,8 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
         </div>
 
         {/* Cores Principais Manual */}
-        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
-          <div className="space-y-1 col-span-2">
+        <div className="pt-2 border-t border-white/5 space-y-3">
+          <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
               Cor Primária
             </label>
@@ -7320,6 +7557,94 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
               <span className="text-xs font-mono text-slate-300 uppercase select-all">
                 {proj.color || "#ffffff"}
               </span>
+            </div>
+          </div>
+
+          {/* SEÇÃO DEDICADA: CONFIGURAÇÕES DE GLOW / BRILHO (GLOW SETTINGS) */}
+          <div className="bg-amber-950/20 border border-amber-500/25 rounded-xl p-3 space-y-3 shadow-inner">
+            <div className="flex items-center justify-between border-b border-amber-500/20 pb-1.5">
+              <h4 className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5 font-sans">
+                <span>✨ Configurações de Glow / Brilho (Glow Settings)</span>
+              </h4>
+              {(proj.glowColor || proj.glowBlur !== undefined || proj.glowRadius !== undefined || proj.glowIntensity !== undefined) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleProjectileStyleChange(projKey, "glowColor", undefined);
+                    handleProjectileStyleChange(projKey, "glowBlur", undefined);
+                    handleProjectileStyleChange(projKey, "glowRadius", undefined);
+                    handleProjectileStyleChange(projKey, "glowIntensity", undefined);
+                  }}
+                  className="text-[8px] text-red-400 hover:text-red-300 underline uppercase font-bold cursor-pointer transition-colors"
+                >
+                  Resetar Glow
+                </button>
+              )}
+            </div>
+
+            {/* 1. Glow Color Picker */}
+            <div className="space-y-1">
+              <label className="text-[9px] font-black text-amber-300 uppercase tracking-wider block font-black">
+                Cor do Glow (glow-color)
+              </label>
+              <div className="flex items-center gap-3 bg-black/40 p-2 rounded-lg border border-amber-500/20">
+                <input
+                  type="color"
+                  id="input-proj-glow-color"
+                  value={proj.glowColor || proj.color || "#f59e0b"}
+                  onChange={(e) =>
+                    handleProjectileStyleChange(projKey, "glowColor", e.target.value)
+                  }
+                  className="w-9 h-9 rounded-lg bg-transparent border-0 cursor-pointer overflow-hidden p-0"
+                />
+                <div className="space-y-0.5 font-bold">
+                  <span className="text-xs font-mono font-bold text-amber-200 uppercase block select-all">
+                    {proj.glowColor || (proj.color && proj.color !== "#ffffff" ? proj.color : "Auto (#f59e0b)")}
+                  </span>
+                  <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">
+                    Brilho emissivo do projétil/esfera
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Glow Radius Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px] font-black text-amber-300 uppercase tracking-wider">
+                <span>Raio do Glow / Blur (glow-radius)</span>
+                <span className="text-amber-200 font-mono">
+                  {proj.glowRadius !== undefined ? `${proj.glowRadius}px` : proj.glowBlur !== undefined ? `${proj.glowBlur}px` : "12px (Auto)"}
+                </span>
+              </div>
+              <SliderWithControls
+                min={0}
+                max={60}
+                step={1}
+                value={proj.glowRadius !== undefined ? proj.glowRadius : (proj.glowBlur !== undefined ? proj.glowBlur : 12)}
+                onChange={(val) => {
+                  handleProjectileStyleChange(projKey, "glowRadius", val);
+                  handleProjectileStyleChange(projKey, "glowBlur", val);
+                }}
+                accentColor="amber-500"
+              />
+            </div>
+
+            {/* 3. Glow Intensity Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px] font-black text-amber-300 uppercase tracking-wider">
+                <span>Intensidade do Glow (glow-intensity)</span>
+                <span className="text-amber-200 font-mono">
+                  {Math.round((proj.glowIntensity !== undefined ? proj.glowIntensity : 1.0) * 100)}%
+                </span>
+              </div>
+              <SliderWithControls
+                min={0}
+                max={3}
+                step={0.1}
+                value={proj.glowIntensity !== undefined ? proj.glowIntensity : 1.0}
+                onChange={(val) => handleProjectileStyleChange(projKey, "glowIntensity", val)}
+                accentColor="amber-500"
+              />
             </div>
           </div>
         </div>
@@ -7455,12 +7780,12 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
           {/* Original Source GIF */}
           <div className="col-span-2 space-y-1.5 pt-2 border-t border-white/5">
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block font-black">
-              Animação Original (GIF Base)
+              Aura Sprite (Animação Base)
             </label>
             <select
-              value={currentAura.baseAuraId || "AURA_001"}
+              value={(currentAura as any).auraSprite || currentAura.baseAuraId || "AURA_001"}
               onChange={(e) =>
-                handleAuraStyleChange(auraKey, "baseAuraId", e.target.value)
+                handleAuraStyleChange(auraKey, "auraSprite", e.target.value)
               }
               className="w-full bg-black/30 border-white/10 hover:border-white/15 transition-colors rounded-lg px-2.5 py-1.5 border text-xs text-amber-400 font-black focus:outline-none font-bold"
             >
@@ -7493,9 +7818,97 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                     {currentAura.color || "#ffffff"}
                   </span>
                   <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider block">
-                    Preencha ou selecione para tingir a aura
+                    Tingir aura
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* SEÇÃO DEDICADA: CONFIGURAÇÕES DE GLOW / BRILHO (GLOW SETTINGS) */}
+            <div className="bg-amber-950/20 border border-amber-500/25 rounded-xl p-3 space-y-3 shadow-inner">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-1.5">
+                <h4 className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5 font-sans">
+                  <span>✨ Configurações de Glow / Brilho (Glow Settings)</span>
+                </h4>
+                {(currentAura.glowColor || currentAura.glowBlur !== undefined || currentAura.glowRadius !== undefined || currentAura.glowIntensity !== undefined) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAuraStyleChange(auraKey, "glowColor", undefined);
+                      handleAuraStyleChange(auraKey, "glowBlur", undefined);
+                      handleAuraStyleChange(auraKey, "glowRadius", undefined);
+                      handleAuraStyleChange(auraKey, "glowIntensity", undefined);
+                    }}
+                    className="text-[8px] text-red-400 hover:text-red-300 underline uppercase font-bold cursor-pointer transition-colors"
+                  >
+                    Resetar Glow
+                  </button>
+                )}
+              </div>
+
+              {/* 1. Glow Color Picker */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-amber-300 uppercase tracking-wider block font-black">
+                  Cor do Glow (glow-color)
+                </label>
+                <div className="flex items-center gap-3 bg-black/40 p-2 rounded-lg border border-amber-500/20">
+                  <input
+                    type="color"
+                    id="aura-glow-color"
+                    value={currentAura.glowColor || currentAura.color || "#3b82f6"}
+                    onChange={(e) =>
+                      handleAuraStyleChange(auraKey, "glowColor", e.target.value)
+                    }
+                    className="w-9 h-9 rounded-lg bg-transparent border-0 cursor-pointer overflow-hidden p-0"
+                  />
+                  <div className="space-y-0.5 font-bold">
+                    <span className="text-xs font-mono font-bold text-amber-200 uppercase block select-all">
+                      {currentAura.glowColor || (currentAura.color && currentAura.color !== "#ffffff" ? currentAura.color : "Auto (#3b82f6)")}
+                    </span>
+                    <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">
+                      Sombra de contorno emissiva da aura
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Glow Radius Slider */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-[9px] font-black text-amber-300 uppercase tracking-wider">
+                  <span>Raio do Glow / Blur (glow-radius)</span>
+                  <span className="text-amber-200 font-mono">
+                    {currentAura.glowRadius !== undefined ? `${currentAura.glowRadius}px` : currentAura.glowBlur !== undefined ? `${currentAura.glowBlur}px` : "14px (Auto)"}
+                  </span>
+                </div>
+                <SliderWithControls
+                  min={0}
+                  max={60}
+                  step={1}
+                  value={currentAura.glowRadius !== undefined ? currentAura.glowRadius : (currentAura.glowBlur !== undefined ? currentAura.glowBlur : 14)}
+                  onChange={(val) => {
+                    handleAuraStyleChange(auraKey, "glowRadius", val);
+                    handleAuraStyleChange(auraKey, "glowBlur", val);
+                  }}
+                  accentColor="amber-500"
+                />
+              </div>
+
+              {/* 3. Glow Intensity Slider */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-[9px] font-black text-amber-300 uppercase tracking-wider">
+                  <span>Intensidade do Glow (glow-intensity)</span>
+                  <span className="text-amber-200 font-mono">
+                    {Math.round((currentAura.glowIntensity !== undefined ? currentAura.glowIntensity : 1.0) * 100)}%
+                  </span>
+                </div>
+                <SliderWithControls
+                  min={0}
+                  max={3}
+                  step={0.1}
+                  value={currentAura.glowIntensity !== undefined ? currentAura.glowIntensity : 1.0}
+                  onChange={(val) => handleAuraStyleChange(auraKey, "glowIntensity", val)}
+                  accentColor="amber-500"
+                />
               </div>
             </div>
 
@@ -7881,25 +8294,111 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
 
         {/* Cores e Brilhos principais */}
         <div className="pt-2 border-t border-white/5 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1 col-span-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                Cor Base / Haz
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
+              Cor Base / Haz
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={beam.color || "#ffffff"}
+                onChange={(e) =>
+                  handleBeamStyleChange(beamKey, "color", e.target.value)
+                }
+                className="w-8 h-8 rounded-lg bg-transparent border-0 cursor-pointer overflow-hidden p-0"
+                id="input-base-color"
+              />
+              <span className="text-xs font-mono text-slate-300 uppercase select-all">
+                {beam.color || "#ffffff"}
+              </span>
+            </div>
+          </div>
+
+          {/* SEÇÃO DEDICADA: CONFIGURAÇÕES DE GLOW / BRILHO (GLOW SETTINGS) */}
+          <div className="bg-sky-950/20 border border-sky-500/25 rounded-xl p-3 space-y-3 shadow-inner">
+            <div className="flex items-center justify-between border-b border-sky-500/20 pb-1.5">
+              <h4 className="text-[10px] font-black uppercase tracking-wider text-sky-400 flex items-center gap-1.5 font-sans">
+                <span>✨ Configurações de Glow / Brilho (Glow Settings)</span>
+              </h4>
+              {(beam.glowColor || beam.glowBlur !== undefined || beam.glowRadius !== undefined || beam.glowIntensity !== undefined) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleBeamStyleChange(beamKey, "glowColor", undefined);
+                    handleBeamStyleChange(beamKey, "glowBlur", undefined);
+                    handleBeamStyleChange(beamKey, "glowRadius", undefined);
+                    handleBeamStyleChange(beamKey, "glowIntensity", undefined);
+                  }}
+                  className="text-[8px] text-red-400 hover:text-red-300 underline uppercase font-bold cursor-pointer transition-colors"
+                >
+                  Resetar Glow
+                </button>
+              )}
+            </div>
+
+            {/* 1. Glow Color Picker */}
+            <div className="space-y-1">
+              <label className="text-[9px] font-black text-sky-300 uppercase tracking-wider block font-black">
+                Cor do Glow (glow-color)
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 bg-black/40 p-2 rounded-lg border border-sky-500/20">
                 <input
                   type="color"
-                  value={beam.color || "#ffffff"}
+                  id="input-beam-glow-color"
+                  value={beam.glowColor || beam.color || "#3b82f6"}
                   onChange={(e) =>
-                    handleBeamStyleChange(beamKey, "color", e.target.value)
+                    handleBeamStyleChange(beamKey, "glowColor", e.target.value)
                   }
-                  className="w-8 h-8 rounded-lg bg-transparent border-0 cursor-pointer overflow-hidden p-0"
-                  id="input-base-color"
+                  className="w-9 h-9 rounded-lg bg-transparent border-0 cursor-pointer overflow-hidden p-0"
                 />
-                <span className="text-xs font-mono text-slate-300 uppercase select-all">
-                  {beam.color || "#ffffff"}
+                <div className="space-y-0.5 font-bold">
+                  <span className="text-xs font-mono font-bold text-sky-200 uppercase block select-all">
+                    {beam.glowColor || (beam.color && beam.color !== "#ffffff" ? beam.color : "Auto (#3b82f6)")}
+                  </span>
+                  <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">
+                    Brilho de contorno do feixe de energia
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Glow Radius Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px] font-black text-sky-300 uppercase tracking-wider">
+                <span>Raio do Glow / Blur (glow-radius)</span>
+                <span className="text-sky-200 font-mono">
+                  {beam.glowRadius !== undefined ? `${beam.glowRadius}px` : beam.glowBlur !== undefined ? `${beam.glowBlur}px` : "14px (Auto)"}
                 </span>
               </div>
+              <SliderWithControls
+                min={0}
+                max={60}
+                step={1}
+                value={beam.glowRadius !== undefined ? beam.glowRadius : (beam.glowBlur !== undefined ? beam.glowBlur : 14)}
+                onChange={(val) => {
+                  handleBeamStyleChange(beamKey, "glowRadius", val);
+                  handleBeamStyleChange(beamKey, "glowBlur", val);
+                }}
+                accentColor="sky-500"
+              />
+            </div>
+
+            {/* 3. Glow Intensity Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px] font-black text-sky-300 uppercase tracking-wider">
+                <span>Intensidade do Glow (glow-intensity)</span>
+                <span className="text-sky-200 font-mono">
+                  {Math.round((beam.glowIntensity !== undefined ? beam.glowIntensity : 1.0) * 100)}%
+                </span>
+              </div>
+              <SliderWithControls
+                min={0}
+                max={3}
+                step={0.1}
+                value={beam.glowIntensity !== undefined ? beam.glowIntensity : 1.0}
+                onChange={(val) => handleBeamStyleChange(beamKey, "glowIntensity", val)}
+                accentColor="sky-500"
+              />
             </div>
           </div>
         </div>
@@ -7927,12 +8426,20 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
     );
 
   return (
-    <div className="absolute inset-0 bg-[#0A0A0B] text-slate-300 flex flex-col font-sans overflow-hidden select-none">
+    <div className="absolute inset-0 bg-stone-950 text-stone-200 flex flex-col font-sans overflow-hidden select-none">
+      {/* Background texture & overlay */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 pointer-events-none"
+        style={{ backgroundImage: `url('/Assets/fundosdastelas/modos/m3.png')` }}
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-stone-950/80 via-stone-950/90 to-stone-950 pointer-events-none" />
+      <div className="absolute inset-0 mix-blend-overlay bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-25 pointer-events-none" />
+
       {isDraggingLeftPanel && (
         <div className="fixed inset-0 z-[9999] cursor-col-resize" />
       )}
       {/* Header */}
-      <div className="h-16 bg-[#111113]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 shrink-0">
+      <div className="h-16 md:h-20 bg-stone-900/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 shrink-0 z-50 relative">
         <div className="flex items-center gap-4">
           <button
             onClick={() => {
@@ -7964,47 +8471,52 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                 }
               }, 50);
             }}
-            className="w-8 h-8 bg-white/5 hover:bg-white/10 rounded-lg flex items-center justify-center transition-all group"
+            className="w-10 h-10 md:w-12 md:h-12 bg-stone-900/80 hover:bg-stone-800 flex items-center justify-center border border-white/10 rounded-xl transition-all shadow-lg cursor-pointer group"
           >
-            <ArrowLeft className="w-4 h-4 text-slate-400 group-hover:-translate-x-1 transition-transform" />
+            <ChevronLeft className="w-5 h-5 md:w-6 md:h-6 text-stone-300 group-hover:-translate-x-0.5 transition-transform" />
           </button>
-          <h1 className="text-base font-black italic uppercase tracking-tighter flex items-center gap-2 text-orange-400">
-            <RefreshCw className="w-5 h-5 text-orange-500" />
-            Anim Preview & Origin Fix
-          </h1>
+          <div>
+            <h1 className="text-base md:text-xl font-black italic uppercase tracking-wider flex items-center gap-2 text-white drop-shadow-md">
+              <Clapperboard className="w-5 h-5 text-orange-500" />
+              <span className="bg-gradient-to-r from-orange-400 via-amber-300 to-amber-500 bg-clip-text text-transparent">ANIMATION TOOLS & ORIGIN FIX</span>
+            </h1>
+            <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest hidden sm:block">
+              ESTÚDIO DE ANIMAÇÃO E HITBOXES
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
           <button
             onClick={handleSaveCharacterAndAnimations}
-            className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest text-white flex items-center gap-2 transition-all shadow-lg shadow-emerald-600/20"
+            className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white flex items-center gap-2 transition-all shadow-lg shadow-emerald-600/20 cursor-pointer"
             title="Salva permanentemente as animações, Creates Beam, offsets e configurações do personagem no banco de dados e local storage"
           >
             <Save className="w-4 h-4" />
-            Salvar Personagem
+            <span className="hidden md:inline">Salvar Personagem</span>
           </button>
           <button
             onClick={copyAllCharConfigs}
-            className="bg-orange-900 border border-indigo-700 hover:bg-indigo-800 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest text-white flex items-center gap-2 transition-all"
+            className="bg-stone-800/80 hover:bg-stone-700/80 border border-white/10 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-stone-200 flex items-center gap-2 transition-all cursor-pointer"
           >
-            <Copy className="w-4 h-4" />
-            Copy All Anims
+            <Copy className="w-4 h-4 text-orange-400" />
+            <span className="hidden md:inline">Copy All Anims</span>
           </button>
           <button
             onClick={copyToClipboard}
-            className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest text-white flex items-center gap-2 transition-all shadow-lg "
+            className="bg-orange-600 hover:bg-orange-500 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white flex items-center gap-2 transition-all shadow-lg shadow-orange-600/20 cursor-pointer"
           >
             <Copy className="w-4 h-4" />
-            Copy Config
+            <span className="hidden md:inline">Copy Config</span>
           </button>
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative z-10">
         {/* Left Panel - Modern Controls */}
         <div
           style={{ width: `${leftPanelWidth}px` }}
-          className="bg-[#111113] border-r border-white/5 flex flex-col shrink-0 z-10 shadow-2xl relative"
+          className="bg-stone-900/60 backdrop-blur-md border-r border-white/5 flex flex-col shrink-0 z-10 shadow-2xl relative"
         >
           {/* Resize Handle */}
           <div
@@ -8015,103 +8527,110 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
             }}
           />
           {/* Tabs */}
-          <div className="flex border-b border-white/5 p-2 gap-1 bg-[#18181b]/50 overflow-x-auto custom-scrollbar shrink-0">
+          <div className="flex border-b border-white/5 p-2 gap-1.5 bg-stone-950/50 overflow-x-auto custom-scrollbar shrink-0">
             {[
               {
                 id: "SETTINGS",
-                icon: <Settings className="w-5 h-5" />,
+                icon: <Settings className="w-4 h-4" />,
                 label: "Setup",
               },
               {
                 id: "TRANSFORM",
-                icon: <Move className="w-5 h-5" />,
+                icon: <Move className="w-4 h-4" />,
                 label: "Transform",
               },
               {
                 id: "COMBAT",
-                icon: <Zap className="w-5 h-5 text-orange-400" />,
+                icon: <Zap className="w-4 h-4 text-orange-400" />,
                 label: "Combat",
               },
               {
                 id: "CINEMATIC",
-                icon: <Video className="w-5 h-5" />,
-                label: "Camera Info",
+                icon: <Video className="w-4 h-4" />,
+                label: "Camera",
               },
               {
                 id: "SCENE",
-                icon: <Box className="w-5 h-5" />,
+                icon: <Box className="w-4 h-4" />,
                 label: "Cutscene",
               },
               {
                 id: "REFERENCE",
-                icon: <ImageIcon className="w-5 h-5" />,
-                label: "Reference",
+                icon: <ImageIcon className="w-4 h-4" />,
+                label: "Ref",
               },
               {
                 id: "KI_BLAST",
-                icon: <Zap className="w-5 h-5 text-teal-400" />,
+                icon: <Zap className="w-4 h-4 text-teal-400" />,
                 label: "Ki Blast",
               },
               {
                 id: "GENKIDAMA",
-                icon: <Crosshair className="w-5 h-5 text-amber-400" />,
+                icon: <Crosshair className="w-4 h-4 text-amber-400" />,
                 label: "Genkidama",
               },
               {
                 id: "BEAM",
-                icon: <Flame className="w-5 h-5 text-sky-400" />,
+                icon: <Flame className="w-4 h-4 text-sky-400" />,
                 label: "Beams",
               },
               {
                 id: "fechosenergia",
-                icon: <Activity className="w-5 h-5 text-purple-400" />,
-                label: "Fecho Energia",
+                icon: <Activity className="w-4 h-4 text-purple-400" />,
+                label: "Fechos",
               },
               {
                 id: "COLLISION",
-                icon: <Layers className="w-5 h-5" />,
-                label: "Collision",
+                icon: <Layers className="w-4 h-4" />,
+                label: "Colisão",
               },
               {
                 id: "BEAMS_MANAGER",
-                icon: <Wrench className="w-5 h-5" />,
+                icon: <Wrench className="w-4 h-4" />,
                 label: "Manager",
               },
               {
                 id: "AURAS",
                 icon: (
-                  <Flame className="w-5 h-5 text-amber-500 animate-pulse" />
+                  <Flame className="w-4 h-4 text-amber-500 animate-pulse" />
                 ),
                 label: "Auras",
               },
               {
                 id: "VFX",
-                icon: <Zap className="w-5 h-5 text-green-400" />,
-                label: "Efeitos VFX",
+                icon: <Zap className="w-4 h-4 text-green-400" />,
+                label: "VFX",
               },
               {
                 id: "FULL_LIST",
-                icon: <List className="w-5 h-5 text-indigo-400" />,
+                icon: <List className="w-4 h-4 text-indigo-400" />,
                 label: "Lista Total",
               },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2 px-1 rounded-lg transition-all ${activeTab === tab.id ? "bg-orange-500/10 text-orange-400 border border-orange-500/20" : "text-slate-500 hover:bg-white/5 border border-transparent hover:text-white"}`}
-              >
-                {tab.icon}
-                <span className="text-[10px] font-black uppercase tracking-widest leading-none mt-1">
-                  {tab.label}
-                </span>
-              </button>
-            ))}
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex-1 min-w-[64px] flex flex-col items-center justify-center gap-1 py-2 px-1.5 rounded-xl transition-all cursor-pointer ${
+                    isActive 
+                      ? "bg-orange-600/20 text-white font-black italic border border-orange-500/30 shadow-md shadow-orange-600/10" 
+                      : "text-stone-400 hover:bg-white/5 border border-transparent hover:text-white"
+                  }`}
+                >
+                  {tab.icon}
+                  <span className="text-[9px] font-black uppercase tracking-wider leading-none mt-0.5 whitespace-nowrap">
+                    {tab.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Tab Content */}
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
             {/* Character & State (Always Visible Except in Beam/Projectile) */}
-            {activeTab !== "BEAM" && activeTab !== "PROJECTILE" && (
+            {activeTab !== "BEAM" && (activeTab as string) !== "PROJECTILE" && (
               <div className="space-y-4 bg-[#18181b] p-4 rounded-2xl border border-white/5 mb-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest tracking-widest flex items-center gap-2">
@@ -9836,7 +10355,6 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setSelectedProjectileFamilyId(val);
-                                setSelectedBeamFamilyId(val);
                               }}
                               className="w-full bg-black/30 border-white/5 hover:border-white/10 transition-colors rounded-xl px-3 py-2 text-xs font-black italic uppercase tracking-wider focus:outline-none focus:border-teal-500 text-teal-400"
                             >
@@ -9909,7 +10427,6 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                   }));
 
                                   setSelectedProjectileFamilyId(newKey);
-                                  setSelectedBeamFamilyId(newKey);
                                 }}
                                 className="mb-4 w-full px-3 py-2.5 rounded-xl bg-gradient-to-r from-teal-500/10 to-emerald-500/10 hover:from-teal-500/20 hover:to-emerald-500/20 border border-teal-500/20 text-teal-400 font-black text-[10px] uppercase tracking-wider transition-all shadow-md shadow-black/20 inline-flex justify-center items-center gap-1.5 cursor-pointer"
                                 onClickCapture={(e) => e.stopPropagation()}
@@ -10217,7 +10734,6 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setSelectedProjectileFamilyId(val);
-                                setSelectedBeamFamilyId(val);
                               }}
                               className="w-full bg-black/30 border-white/5 hover:border-white/10 transition-colors rounded-xl px-3 py-2 text-xs font-black italic uppercase tracking-wider focus:outline-none focus:border-amber-500 text-amber-400"
                             >
@@ -10297,17 +10813,25 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                   }));
 
                                   setSelectedProjectileFamilyId(newKey);
-                                  setSelectedBeamFamilyId(newKey);
 
                                   setSelectedChar((prev) => {
                                     const newChar = { ...prev };
                                     if (newChar.spriteConfig?.animations) {
+                                      const isGenkiState =
+                                        selectedState.toUpperCase().includes("GENKIDAMA") ||
+                                        (selectedState.toUpperCase().startsWith("ULTIMATE_2") &&
+                                          selectedChar.id !== "kuririn");
+
                                       [
                                         "GENKIDAMA",
                                         "GENKIDAMA_CHAO",
                                         "GENKIDAMA_FINAL",
-                                        "Ultimate_2_3",
-                                        selectedState,
+                                        "ULTIMATE_2_1",
+                                        "ULTIMATE_2_2",
+                                        "ULTIMATE_2_3",
+                                        "ULTIMATE_2_4",
+                                        "ULTIMATE_2_5",
+                                        ...(isGenkiState ? [selectedState] : []),
                                       ].forEach((gKey) => {
                                         const anim =
                                           newChar.spriteConfig!.animations![
@@ -11047,7 +11571,6 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setSelectedProjectileFamilyId(val);
-                                setSelectedBeamFamilyId(val);
                               }}
                               className="w-full bg-black/30 border-white/5 hover:border-white/10 transition-colors rounded-xl px-3 py-2 text-xs font-black italic uppercase tracking-wider focus:outline-none focus:border-purple-500 text-purple-400"
                             >
@@ -11135,7 +11658,6 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                   }));
 
                                   setSelectedProjectileFamilyId(newKey);
-                                  setSelectedBeamFamilyId(newKey);
                                 }}
                                 className="mb-4 w-full px-3 py-2.5 rounded-xl bg-gradient-to-r from-purple-500/10 to-indigo-500/10 hover:from-purple-500/20 hover:to-indigo-500/20 border border-purple-500/20 text-purple-400 font-black text-[10px] uppercase tracking-wider transition-all shadow-md shadow-black/20 inline-flex justify-center items-center gap-1.5 cursor-pointer"
                                 onClickCapture={(e) => e.stopPropagation()}
@@ -11832,6 +12354,8 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                     if (!newAnims[animKey])
                                       newAnims[animKey] = {
                                         frames: 1,
+                                        frameWidth: 0,
+                                        frameHeight: 0,
                                         imageUrl: "",
                                       };
 
@@ -11958,6 +12482,8 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                   if (!newAnims[animKey])
                                     newAnims[animKey] = {
                                       frames: 1,
+                                      frameWidth: 0,
+                                      frameHeight: 0,
                                       imageUrl: "",
                                     };
 
@@ -12277,7 +12803,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                         );
 
                         setLocalBeamDatabase(keyManager.getAllBeams());
-                        setSelectedBeamFamilyId("BEAM");
+                        setSelectedBeamFamilyId(newKey);
                         setDestinationBeamKey(newKey);
                         setActiveTab("BEAM");
                       }}
@@ -12320,7 +12846,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                         setLocalProjectileDatabase(
                           keyManager.getAllProjectiles(),
                         );
-                        setSelectedProjectileFamilyId("PROJETIL_1");
+                        setSelectedProjectileFamilyId(newKey);
                         setDestinationProjectileKey(newKey);
                         setActiveTab("KI_BLAST");
                       }}
@@ -12362,7 +12888,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                         setLocalProjectileDatabase(
                           keyManager.getAllProjectiles(),
                         );
-                        setSelectedProjectileFamilyId("fechosenergia_1");
+                        setSelectedProjectileFamilyId(newKey);
                         setDestinationProjectileKey(newKey);
                         setActiveTab("fechosenergia");
                       }}
@@ -12437,7 +12963,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                         setLocalProjectileDatabase(
                           keyManager.getAllProjectiles(),
                         );
-                        setSelectedProjectileFamilyId("GENKIDAMA_1");
+                        setSelectedProjectileFamilyId(newKey);
                         setDestinationProjectileKey(newKey);
                         setActiveTab("GENKIDAMA");
                       }}
@@ -12966,8 +13492,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                       setActiveTab("BEAM");
                                     } else {
                                       setSelectedProjectileFamilyId(key);
-                                      setSelectedBeamFamilyId(key); // Sincroniza IDs
-                                      if (activeManagerClass === "PROJECTILE") {
+                                                                            if (activeManagerClass === "PROJECTILE") {
                                         setActiveTab("KI_BLAST");
                                       } else if (
                                         activeManagerClass === "FECHO"
@@ -13037,7 +13562,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
 
                                       keyManager.registerAura(
                                         newKey,
-                                        item.baseAuraId || "AURA_001",
+                                        (item as any).auraSprite || item.baseAuraId || "AURA_001",
                                         newName,
                                         clonedFull,
                                       );
@@ -13171,7 +13696,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                     ) {
                                       deleteKeysFromProject(
                                         [key],
-                                        activeManagerClass === "BEAM" ? "BEAM" : activeManagerClass
+                                        activeManagerClass === "BEAM" ? "BEAM" : activeManagerClass === "GENKIDAMA" ? "GENKIDAMA" : activeManagerClass === "FECHO" ? "FECHO" : "PROJECTILE"
                                       );
                                     }
                                   }}
@@ -13354,7 +13879,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                       const selectedFromThisCat = selectedInactiveKeys.filter(k => inactiveKeys.includes(k));
                                       if (selectedFromThisCat.length === 0) return;
                                       if (confirm(`Deseja realmente excluir permanentemente as ${selectedFromThisCat.length} chaves inativas selecionadas?`)) {
-                                        deleteKeysFromProject(selectedFromThisCat, activeManagerClass === "BEAM" ? "BEAM" : activeManagerClass);
+                                        deleteKeysFromProject(selectedFromThisCat, activeManagerClass === "BEAM" ? "BEAM" : activeManagerClass === "GENKIDAMA" ? "GENKIDAMA" : activeManagerClass === "FECHO" ? "FECHO" : "PROJECTILE");
                                       }
                                     }}
                                     disabled={selectedInactiveKeys.filter(k => inactiveKeys.includes(k)).length === 0}
@@ -13366,7 +13891,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                   <button
                                     onClick={() => {
                                       if (confirm(`Deseja realmente excluir permanentemente TODAS as ${inactiveKeys.length} chaves inativas desta categoria?`)) {
-                                        deleteKeysFromProject(inactiveKeys, activeManagerClass === "BEAM" ? "BEAM" : activeManagerClass);
+                                        deleteKeysFromProject(inactiveKeys, activeManagerClass === "BEAM" ? "BEAM" : activeManagerClass === "GENKIDAMA" ? "GENKIDAMA" : activeManagerClass === "FECHO" ? "FECHO" : "PROJECTILE");
                                       }
                                     }}
                                     className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-black text-[10px] uppercase tracking-wider transition-colors flex items-center gap-1 shadow-lg shadow-red-600/10"
@@ -13918,7 +14443,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                               type="button"
                               onClick={() => {
                                 const baseAura =
-                                  currentAura?.baseAuraId || "AURA_001";
+                                  (currentAura as any)?.auraSprite || currentAura?.baseAuraId || "AURA_001";
                                 setSelectedAuraKey(baseAura);
                               }}
                               className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black text-[10px] uppercase tracking-wider transition-colors shrink-0"
@@ -13959,7 +14484,17 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                             {selectedAuraKey.startsWith("CHAVE_") && (
                               <>
                                 <h4 className="text-[11px] font-black text-amber-400 uppercase tracking-widest flex items-center justify-between pb-1.5 border-b border-white/5">
-                                  <span>Identificadores & Escopo</span>
+                                   <div className="flex items-center gap-2">
+                                     <span>Identificadores & Escopo</span>
+                                     <button
+                                       type="button"
+                                       onClick={copyToClipboard}
+                                       className="text-[9px] bg-orange-600 hover:bg-orange-500 px-2 py-0.5 text-white rounded font-black uppercase transition-all flex items-center gap-1 cursor-pointer"
+                                       title="Copiar configuração atual para o clipboard"
+                                     >
+                                       <Copy className="w-2.5 h-2.5" /> Copiar Código
+                                     </button>
+                                   </div>
                                   {selectedAuraKey.startsWith("CHAVE_") && (
                                     <button
                                       type="button"
@@ -14112,29 +14647,29 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                   </div>
                                 </div>
 
-                                {/* Base animation source */}
-                                <div className="space-y-1.5 pt-3 border-t border-white/5">
-                                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block font-black">
-                                    Animação Original (GIF Base)
-                                  </label>
-                                  <select
-                                    value={currentAura.baseAuraId || "AURA_001"}
-                                    onChange={(e) =>
-                                      handleAuraStyleChange(
-                                        selectedAuraKey,
-                                        "baseAuraId",
-                                        e.target.value,
-                                      )
-                                    }
-                                    className="w-full bg-black/30 border-white/10 hover:border-white/15 transition-colors rounded-lg px-2.5 py-1.5 border text-xs text-amber-400 font-black focus:outline-none"
-                                  >
-                                    {Object.keys(DEFAULT_AURAS).map((key) => (
-                                      <option key={key} value={key}>
-                                        GIF: {key.replace(/_/g, " ")}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
+                                 {/* Base animation source */}
+                                 <div className="space-y-1.5 pt-3 border-t border-white/5">
+                                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block font-black">
+                                     Aura Sprite (Animação Base)
+                                   </label>
+                                   <select
+                                     value={(currentAura as any).auraSprite || currentAura.baseAuraId || "AURA_001"}
+                                     onChange={(e) =>
+                                       handleAuraStyleChange(
+                                         selectedAuraKey,
+                                         "auraSprite",
+                                         e.target.value,
+                                       )
+                                     }
+                                     className="w-full bg-black/30 border-white/10 hover:border-white/15 transition-colors rounded-lg px-2.5 py-1.5 border text-xs text-amber-400 font-black focus:outline-none"
+                                   >
+                                     {Object.keys(DEFAULT_AURAS).map((key) => (
+                                       <option key={key} value={key}>
+                                         GIF: {key.replace(/_/g, " ")}
+                                       </option>
+                                     ))}
+                                   </select>
+                                 </div>
                               </>
                             )}
 
@@ -14339,6 +14874,139 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                   }
                                   accentColor="amber-500"
                                 />
+                              </div>
+
+                              {/* CONTORNO E GLOW OUTLINE */}
+                              <div className="space-y-4 pt-3 border-t border-white/5 font-black">
+                                <div className="flex items-center justify-between pb-1 border-b border-white/5">
+                                  <span className="text-[10px] uppercase font-black tracking-widest text-amber-400 flex items-center gap-1.5">
+                                    <Sparkles className="w-4 h-4 text-amber-400" />{" "}
+                                    Contorno de Brilho / Glow Outline
+                                  </span>
+                                  {currentAura.glowColor && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleAuraStyleChange(selectedAuraKey, {
+                                          glowColor: "",
+                                          glowBlur: undefined,
+                                          glowRadius: undefined,
+                                          glowIntensity: 1.0,
+                                        });
+                                      }}
+                                      className="flex items-center gap-1 px-2 py-0.5 text-[9px] bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/35 border border-red-500/30 text-red-300 rounded transition-all font-bold uppercase tracking-wider cursor-pointer"
+                                    >
+                                      <RotateCcw className="w-2.5 h-2.5" /> Limpar Glow
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Glow Color */}
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-black">
+                                    Cor do Contorno / Brilho (Glow Color)
+                                  </label>
+                                  <div className="flex items-center gap-3 bg-black/25 p-2 rounded-lg border border-white/5">
+                                    <input
+                                      type="color"
+                                      value={currentAura.glowColor || currentAura.color || "#3b82f6"}
+                                      onChange={(e) =>
+                                        handleAuraStyleChange(
+                                          selectedAuraKey,
+                                          "glowColor",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-10 h-10 rounded-lg bg-transparent border-0 cursor-pointer overflow-hidden p-0"
+                                    />
+                                    <div className="space-y-0.5 font-bold flex-1">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-mono font-bold text-slate-300 uppercase block select-all">
+                                          {currentAura.glowColor || "Automático (Cor da Aura)"}
+                                        </span>
+                                        {currentAura.glowColor && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleAuraStyleChange(selectedAuraKey, "glowColor", "")}
+                                            className="text-[9px] text-amber-400 hover:underline uppercase font-black"
+                                          >
+                                            Resetar
+                                          </button>
+                                        )}
+                                      </div>
+                                      <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider block">
+                                        Define a cor do rastro / contorno brilhante externo da aura
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Glow Radius / Blur Slider */}
+                                <div className="space-y-1 font-black">
+                                  <div className="flex justify-between text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                    <span>Raio de Desfocagem (Glow Radius / Blur)</span>
+                                    <span className="text-amber-400">
+                                      {currentAura.glowRadius !== undefined
+                                        ? currentAura.glowRadius
+                                        : currentAura.glowBlur !== undefined
+                                          ? currentAura.glowBlur
+                                          : 28}{" "}
+                                      px
+                                    </span>
+                                  </div>
+                                  <SliderWithControls
+                                    min={0}
+                                    max={60}
+                                    step={1}
+                                    value={
+                                      currentAura.glowRadius !== undefined
+                                        ? currentAura.glowRadius
+                                        : currentAura.glowBlur !== undefined
+                                          ? currentAura.glowBlur
+                                          : 28
+                                    }
+                                    onChange={(val) => {
+                                      handleAuraStyleChange(selectedAuraKey, {
+                                        glowRadius: val,
+                                        glowBlur: val,
+                                      });
+                                    }}
+                                    accentColor="amber-500"
+                                  />
+                                </div>
+
+                                {/* Glow Intensity Slider */}
+                                <div className="space-y-1 font-black">
+                                  <div className="flex justify-between text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                    <span>Intensidade do Brilho (Glow Intensity)</span>
+                                    <span className="text-amber-400">
+                                      {(
+                                        currentAura.glowIntensity !== undefined
+                                          ? currentAura.glowIntensity
+                                          : 1.0
+                                      ).toFixed(2)}
+                                      x
+                                    </span>
+                                  </div>
+                                  <SliderWithControls
+                                    min={0}
+                                    max={3}
+                                    step={0.05}
+                                    value={
+                                      currentAura.glowIntensity !== undefined
+                                        ? currentAura.glowIntensity
+                                        : 1.0
+                                    }
+                                    onChange={(val) =>
+                                      handleAuraStyleChange(
+                                        selectedAuraKey,
+                                        "glowIntensity",
+                                        val,
+                                      )
+                                    }
+                                    accentColor="amber-500"
+                                  />
+                                </div>
                               </div>
 
                               {/* Posicionamento - Offset X */}
@@ -14648,7 +15316,7 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                 </button>
                               </div>
 
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-3">
                                 <div className="space-y-1">
                                   <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-black">Cor base / Tintura</label>
                                   <input
@@ -14658,7 +15326,93 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                                     className="w-full h-8 rounded bg-transparent border-0 cursor-pointer"
                                   />
                                 </div>
-                                <div className="space-y-1">
+
+                                {/* SEÇÃO DEDICADA: CONFIGURAÇÕES DE GLOW / BRILHO (GLOW SETTINGS) */}
+                                <div className="bg-emerald-950/20 border border-emerald-500/25 rounded-xl p-3 space-y-3 shadow-inner">
+                                  <div className="flex items-center justify-between border-b border-emerald-500/20 pb-1.5">
+                                    <h4 className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5 font-sans">
+                                      <span>✨ Configurações de Glow / Brilho (Glow Settings)</span>
+                                    </h4>
+                                    {(currentEffect.glowColor || currentEffect.glowBlur !== undefined || currentEffect.glowRadius !== undefined || currentEffect.glowIntensity !== undefined) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleEffectStyleChange(selectedEffectKey, {
+                                            glowColor: undefined,
+                                            glowBlur: undefined,
+                                            glowRadius: undefined,
+                                            glowIntensity: undefined,
+                                          });
+                                        }}
+                                        className="text-[8px] text-red-400 hover:text-red-300 underline uppercase font-bold cursor-pointer transition-colors"
+                                      >
+                                        Resetar Glow
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* 1. Glow Color Picker */}
+                                  <div className="space-y-1">
+                                    <label className="text-[9px] font-black text-emerald-300 uppercase tracking-wider block font-black">
+                                      Cor do Glow (glow-color)
+                                    </label>
+                                    <div className="flex items-center gap-3 bg-black/40 p-2 rounded-lg border border-emerald-500/20">
+                                      <input
+                                        type="color"
+                                        value={currentEffect.glowColor || currentEffect.color || "#10b981"}
+                                        onChange={(e) => handleEffectStyleChange(selectedEffectKey, "glowColor", e.target.value)}
+                                        className="w-8 h-8 rounded-lg bg-transparent border-0 cursor-pointer overflow-hidden p-0"
+                                      />
+                                      <div className="space-y-0.5 font-bold">
+                                        <span className="text-xs font-mono font-bold text-emerald-200 uppercase block select-all">
+                                          {currentEffect.glowColor || (currentEffect.color && currentEffect.color !== "#ffffff" ? currentEffect.color : "Auto (#10b981)")}
+                                        </span>
+                                        <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">
+                                          Sombra de contorno emissiva do efeito
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* 2. Glow Radius Slider */}
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between text-[9px] font-black text-emerald-300 uppercase tracking-wider">
+                                      <span>Raio do Glow / Blur (glow-radius)</span>
+                                      <span className="text-emerald-200 font-mono">
+                                        {currentEffect.glowRadius !== undefined ? `${currentEffect.glowRadius}px` : currentEffect.glowBlur !== undefined ? `${currentEffect.glowBlur}px` : "14px (Auto)"}
+                                      </span>
+                                    </div>
+                                    <SliderWithControls
+                                      min={0} max={60} step={1}
+                                      value={currentEffect.glowRadius !== undefined ? currentEffect.glowRadius : (currentEffect.glowBlur !== undefined ? currentEffect.glowBlur : 14)}
+                                      onChange={(val) => {
+                                        handleEffectStyleChange(selectedEffectKey, {
+                                          glowRadius: val,
+                                          glowBlur: val,
+                                        });
+                                      }}
+                                      accentColor="emerald-500"
+                                    />
+                                  </div>
+
+                                  {/* 3. Glow Intensity Slider */}
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between text-[9px] font-black text-emerald-300 uppercase tracking-wider">
+                                      <span>Intensidade do Glow (glow-intensity)</span>
+                                      <span className="text-emerald-200 font-mono">
+                                        {Math.round((currentEffect.glowIntensity !== undefined ? currentEffect.glowIntensity : 1.0) * 100)}%
+                                      </span>
+                                    </div>
+                                    <SliderWithControls
+                                      min={0} max={3} step={0.1}
+                                      value={currentEffect.glowIntensity !== undefined ? currentEffect.glowIntensity : 1.0}
+                                      onChange={(val) => handleEffectStyleChange(selectedEffectKey, "glowIntensity", val)}
+                                      accentColor="emerald-500"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1 pt-2">
                                   <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-black">Opacidade</label>
                                   <SliderWithControls
                                     min={0} max={1} step={0.05}
@@ -15437,11 +16191,11 @@ ${animText}// 2. CONFIGURAÇÃO DO EFEITO / VFX EXCLUSIVO (Adicione ao banco de 
                   />
                 )}
                 {/* Visual marker if attackFrame exists */}
-                {config?.attackFrame !== undefined && (
+                {(config as any)?.attackFrame !== undefined && (
                   <div
                     className="absolute top-1/2 -translate-y-1/2 w-1.5 h-6 bg-red-500 rounded-full z-0 opacity-80"
                     style={{
-                      left: `${((config.attackFrame + 1) / (config?.frames || 1)) * 100}%`,
+                      left: `${(((config as any).attackFrame + 1) / (config?.frames || 1)) * 100}%`,
                       transform: "translate(-50%, -50%)",
                     }}
                   />

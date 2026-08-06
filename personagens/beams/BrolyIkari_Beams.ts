@@ -51,7 +51,14 @@ export const BrolyIkari_Beams: Record<string, CharacterBeamOverrides> = {
             "centerX": 298,
             "fullScreen": false,
             "beamSpacing": -2
-        }
+        },
+        "color": "#ffffff",
+        "beamOpacity": 1,
+        "beamBrightness": 0.85,
+        "beamHueRotate": 247,
+        "beamSaturate": 2.75,
+        "beamContrast": 1.05,
+        "name": "Beam 1"
     },
     "CHAVE_PROJETIL_17": {
         "middle": {

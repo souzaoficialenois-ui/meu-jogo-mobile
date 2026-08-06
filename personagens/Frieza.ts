@@ -12,7 +12,7 @@ const URLS = {
   carregando_ki_1: "/Assets/personagens/freeza/carregamdo_ki_1.gif",
   carregando_ki_2: "/Assets/personagens/freeza/carregamdo_ki_2.gif",
   carregando_ki_3: "/Assets/personagens/freeza/carregamdo_ki_3.gif",
-  dano_1: "/Assets/personagens/freeza/dano_1.gif",
+  dano_1: "/Assets/personagens/freeza/caindo.gif",
   defesa: "/Assets/personagens/freeza/defesa.gif",
   defesa_agachado: "/Assets/personagens/freeza/defesa_agachado.gif",
   defesa_ar: "/Assets/personagens/freeza/defesa_ar.gif",
@@ -127,7 +127,10 @@ export const FriezaFinal: CharacterData = {
       [PlayerState.FALLING_HIT_GROUND]: createGifAnim(URLS.dano_1, false),
 
       [PlayerState.CHARGE_START]: createGifAnim(URLS.carregando_ki_1, false),
-      [PlayerState.CHARGING]: createGifAnim(URLS.carregando_ki_2, true),
+      [PlayerState.CHARGING]: {
+        ...createGifAnim(URLS.carregando_ki_2, true),
+        auraConfigKey: "CHAVE_AURA_005"
+      },
       [PlayerState.CHARGE_END]: createGifAnim(URLS.carregando_ki_3, false),
 
       [PlayerState.BLOCKING]: createGifAnim(URLS.defesa, false),

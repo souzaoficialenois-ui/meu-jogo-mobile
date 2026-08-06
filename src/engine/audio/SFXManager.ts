@@ -4,6 +4,7 @@ import { AudioCache } from './AudioCache';
 import { AUDIO_MANIFEST, AudioPriority, SoundCategory } from './AudioManifest';
 import { AudioPool } from './AudioPool';
 import { AudioSettings } from './AudioSettings';
+import { SpatialAudioService } from '../../../services/SpatialAudioService';
 
 export class SFXManager {
     private static instance: SFXManager;
@@ -44,24 +45,57 @@ export class SFXManager {
     /**
      * Play combat sound effect natively, fallback dynamically if missing.
      */
-    public async playSFX(key: string, customMultiplier: number = 1.0) {
+    public async playSFX(key: string, customMultiplier: number = 1.0, worldX?: number, getPositionX?: () => number) {
+        let resolvedKey = key;
+
+        // Dynamic sound variations for attacks, hits, movement, dragon rush and defense
+        if (key === 'attack' || key === 'punch' || key === 'hit' || key === 'hit_light') {
+            const lightComboKeys = ['combo_leve_1', 'combo_leve_2', 'combo_leve_3'];
+            resolvedKey = lightComboKeys[Math.floor(Math.random() * lightComboKeys.length)];
+        } else if (key === 'hit_medium') {
+            const mediumComboKeys = ['combo_medio_1', 'combo_medio_2', 'combo_medio_3'];
+            resolvedKey = mediumComboKeys[Math.floor(Math.random() * mediumComboKeys.length)];
+        } else if (key === 'heavy_hit' || key === 'hit_heavy') {
+            resolvedKey = 'combo_forte';
+        } else if (key === 'dragon_rush_impact') {
+            resolvedKey = 'dragon_rush_combo';
+        } else if (key === 'vanish' || key === 'teleporte') {
+            resolvedKey = 'teleport';
+        } else if (key === 'pulo') {
+            resolvedKey = 'jump';
+        } else if (key === 'aterrisagem') {
+            resolvedKey = 'land';
+        } else if (key === 'rompida') {
+            resolvedKey = 'guard_break';
+        } else if (key === 'ko_entry' || key === 'entrada_ko') {
+            resolvedKey = 'entrada_ko';
+        }
+
         const settings = AudioSettings.getInstance();
         const baseVol = settings.getEffectiveVolume(SoundCategory.SFX);
         const effVol = Math.max(0, Math.min(1.0, baseVol * customMultiplier * 1.5)); // Boost combat effects slightly so they feel punchy as defined in guides
 
         if (effVol <= 0) return;
 
-        const priority = this.getSFXPriority(key);
+        const priority = this.getSFXPriority(resolvedKey);
 
         try {
-            const howlNode = await AudioCache.getInstance().getOrCreateHowl(key, SoundCategory.SFX);
+            const howlNode = await AudioCache.getInstance().getOrCreateHowl(resolvedKey, SoundCategory.SFX);
             if (howlNode) {
                 // Compile and play sound
                 const howlId = howlNode.play();
                 howlNode.volume(effVol, howlId);
 
+                if (worldX !== undefined || getPositionX) {
+                    const posX = getPositionX ? getPositionX() : (worldX ?? 0);
+                    SpatialAudioService.getInstance().applyPan(howlNode, howlId, posX);
+                    if (getPositionX) {
+                        SpatialAudioService.getInstance().registerActiveTrack(howlId, howlNode, getPositionX);
+                    }
+                }
+
                 // Check with AudioPool if we are allowed to play this sound (handles anti-spam and polyphony caps)
-                const allowed = AudioPool.getInstance().registerAndCheck(key, SoundCategory.SFX, priority, howlNode, howlId);
+                const allowed = AudioPool.getInstance().registerAndCheck(resolvedKey, SoundCategory.SFX, priority, howlNode, howlId);
                 if (!allowed) {
                     howlNode.stop(howlId); // Halt instantly if discard rules qualify
                     return;
@@ -69,11 +103,11 @@ export class SFXManager {
                 return;
             }
         } catch (err) {
-            console.warn(`[SFX_MANAGER] Failed compiling dynamic SFX: ${key}. Attempting procedural fallback beep.`, err);
+            console.warn(`[SFX_MANAGER] Failed compiling dynamic SFX: ${resolvedKey}. Attempting procedural fallback beep.`, err);
         }
 
         // --- LAYER 3: Emergency Dynamic Synthesized Arcade Tone Fallback ---
-        this.playSyntheticBeep(key, effVol);
+        this.playSyntheticBeep(resolvedKey, effVol);
     }
 
     /**

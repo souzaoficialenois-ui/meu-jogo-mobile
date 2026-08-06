@@ -1,42 +1,6 @@
-import { db, auth } from './firebase';
+import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error Details: ', JSON.stringify(errInfo, null, 2));
-  return errInfo;
-}
+import { handleFirestoreError, OperationType } from './error_handler';
 
 export interface AppConfigData {
     game_version: string;
@@ -75,10 +39,7 @@ export class APIManager {
             }
             return null;
         } catch (error: any) {
-            // Ignore offline errors since they are handled by our offline support logic
-            if (error?.code !== 'unavailable' && !error?.message?.includes('offline')) {
-                 handleFirestoreError(error, OperationType.GET, 'system_config/app_version');
-            }
+            console.warn("APIManager getAppConfig warning:", error);
             return null;
         }
     }

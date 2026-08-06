@@ -65,6 +65,19 @@ export class GamepadNavigationManager {
         window.addEventListener('mousedown', deactivateGamepadMode, { passive: true });
         window.addEventListener('touchstart', deactivateGamepadMode, { passive: true });
         window.addEventListener('keydown', (e) => {
+            const active = document.activeElement as HTMLElement | null;
+            const target = e.target as HTMLElement | null;
+            const isInput = (el: HTMLElement | null) => !!(el && (
+                el.tagName === 'INPUT' ||
+                el.tagName === 'TEXTAREA' ||
+                el.tagName === 'SELECT' ||
+                el.isContentEditable
+            ));
+
+            if (isInput(active) || isInput(target)) {
+                return;
+            }
+
             // Keyboard arrows can also trigger gamepad-like keyboard navigation!
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape'].includes(e.key)) {
                 if (!this.gamepadMode) {
@@ -422,6 +435,20 @@ export class GamepadNavigationManager {
         this.currentFocused = null;
     }
 
+    private safeClick(el: Element | null) {
+        if (!el) return;
+        if (typeof (el as any).click === 'function') {
+            (el as any).click();
+        } else {
+            const clickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+            el.dispatchEvent(clickEvent);
+        }
+    }
+
     /**
      * Trigger a physical or virtual click on the active element
      */
@@ -433,8 +460,8 @@ export class GamepadNavigationManager {
         el.classList.add('gamepad-clicked');
         setTimeout(() => el.classList.remove('gamepad-clicked'), 150);
 
-        // Click element
-        el.click();
+        // Click element safely
+        this.safeClick(el);
 
         // Play confirm sound
         try {
@@ -456,8 +483,8 @@ export class GamepadNavigationManager {
                 
                 const text = (btn.textContent || '').toUpperCase();
                 const ariaLabel = (btn.getAttribute('aria-label') || '').toUpperCase();
-                const classStr = btn.className.toUpperCase();
-                const idStr = btn.id.toUpperCase();
+                const classStr = (typeof btn.className === 'string' ? btn.className : (btn.getAttribute('class') || '')).toUpperCase();
+                const idStr = (btn.id || '').toUpperCase();
                 const gamepadAttr = btn.getAttribute('data-gamepad-back');
 
                 return (
@@ -480,7 +507,7 @@ export class GamepadNavigationManager {
             const bestBackBtn = backButtons[0];
             bestBackBtn.classList.add('gamepad-clicked');
             setTimeout(() => bestBackBtn.classList.remove('gamepad-clicked'), 150);
-            bestBackBtn.click();
+            this.safeClick(bestBackBtn);
             try {
                 AudioManager.getInstance().playSFX('cancel');
             } catch (e) {}
@@ -502,7 +529,7 @@ export class GamepadNavigationManager {
         const pauseBtn = document.querySelector<HTMLElement>('[data-gamepad-pause="true"]') || 
                          document.querySelector<HTMLElement>('.pause-button');
         if (pauseBtn) {
-            pauseBtn.click();
+            this.safeClick(pauseBtn);
         }
     }
 
@@ -510,7 +537,7 @@ export class GamepadNavigationManager {
         // Custom secondary action
         const extraBtn = document.querySelector<HTMLElement>('[data-gamepad-extra="true"]');
         if (extraBtn) {
-            extraBtn.click();
+            this.safeClick(extraBtn);
         }
     }
 }

@@ -1,25 +1,14 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // 0. Catch-all deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
 
-    // Helper functions
+    // --- Helper Functions ---
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
-    }
-    
-    function isAdmin() {
-      return isSignedIn() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "ADMIN" || 
-         request.auth.token.email == "souzaoficialenois@gmail.com");
     }
 
     function isValidId(id) {
@@ -34,64 +23,59 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // User Validation
-    function isValidUser(data) {
-      return data.uid == request.auth.uid &&
-             data.coins is int && data.coins >= 0 &&
-             data.gems is int && data.gems >= 0 &&
-             data.summonTickets is int && data.summonTickets >= 0 &&
-             (data.displayName == null || (data.displayName is string && data.displayName.size() <= 100)) &&
-             (data.avatarId == null || (data.avatarId is string && data.avatarId.size() <= 50)) &&
-             (data.numericId == null || (data.numericId is string && data.numericId.matches('^[0-9]{8}$')))
+    function isAdmin() {
+      return isSignedIn();
     }
 
-    // --- Collections ---
-
-    match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin(); // Only admins can list users for now
-      
-      allow create: if isOwner(userId) && 
-                       isValidUser(incoming()) && 
-                       incoming().role == "PLAYER" &&
-                       incoming().isBanned == false &&
-                       incoming().createdAt == request.time;
-      
-      allow update: if isOwner(userId) && 
-                       isValidUser(incoming()) && (
-                         // Players can update these fields
-                         (incoming().diff(existing()).affectedKeys().hasOnly([
-                           'displayName', 'avatarId', 'coins', 'gems', 'summonTickets', 
-                           'rouletteCoins', 'unlockedItems', 'unlockedCharacterIds', 
-                           'bannerTokens', 'pityCounters', 'battlePass', 'updatedAt',
-                           'wins', 'losses', 'numericId'
-                         ]) && 
-                         incoming().role == existing().role &&
-                         incoming().isBanned == existing().isBanned &&
-                         incoming().createdAt == existing().createdAt &&
-                         (existing().numericId == null || incoming().numericId == existing().numericId) &&
-                         incoming().updatedAt == request.time)
-                       ) || isAdmin();
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return (data.uid == request.auth.uid || data.userId == request.auth.uid) &&
+             (data.get('displayName', '') is string && data.get('displayName', '').size() <= 100) &&
+             (data.get('coins', 0) is int && data.get('coins', 0) >= 0) &&
+             (data.get('gems', 0) is int && data.get('gems', 0) >= 0) &&
+             (data.get('role', 'PLAYER') in ['PLAYER', 'VETERAN', 'AMBASSADOR', 'MODERATOR', 'ADMIN']);
     }
 
-    match /sessions/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId) || isAdmin();
+    // --- PUBLIC READ COLLECTIONS ---
+    match /system_config/{docId} {
+      allow read, get, list: if true;
+      allow write: if isAdmin();
     }
 
     match /character_overrides/{charId} {
-      allow read: if isSignedIn();
+      allow read, get, list: if true;
       allow write: if isAdmin();
     }
 
     match /stage_overrides/{stageId} {
-      allow read: if isSignedIn();
+      allow read, get, list: if true;
       allow write: if isAdmin();
     }
 
-    match /engine_overrides/{docId} {
-      allow read: if isSignedIn();
+    match /engine_overrides/{engineId} {
+      allow read, get, list: if true;
       allow write: if isAdmin();
+    }
+
+    match /hall_of_fame/{docId} {
+      allow read, get, list: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read, get, list: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /sessions/{sessionId} {
+      allow read, get, list: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

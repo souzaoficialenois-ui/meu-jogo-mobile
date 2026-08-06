@@ -27,7 +27,7 @@ export const TrainingHUD: React.FC<TrainingHUDProps> = ({ state, onReset, onTogg
         <div className="flex flex-col gap-2 pointer-events-auto">
             <button 
                 onClick={onExit}
-                className="bg-red-900/90 hover:bg-red-800 px-6 py-2 transform -skew-x-12 border-2 border-red-500 shadow-lg group"
+                className="bg-red-900/90 hover:bg-red-800 px-6 py-2 transform -skew-x-12 border-2 border-red-500 shadow-lg group cursor-pointer"
             >
                 <span className="block transform skew-x-12 font-header text-white font-bold tracking-wider">EXIT TRAINING</span>
             </button>
@@ -38,7 +38,7 @@ export const TrainingHUD: React.FC<TrainingHUDProps> = ({ state, onReset, onTogg
       <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-3 pointer-events-auto">
         <button 
             onClick={onReset}
-            className="w-40 bg-slate-800/90 hover:bg-slate-700 px-4 py-4 rounded-l-xl border-r-4 border-yellow-500 shadow-lg flex items-center justify-between transition-all hover:w-44"
+            className="w-44 bg-slate-800/90 hover:bg-slate-700 px-4 py-4 rounded-l-xl border-r-4 border-yellow-500 shadow-lg flex items-center justify-between transition-all hover:w-48 cursor-pointer"
         >
             <span className="font-header text-sm text-white">RESET POS</span>
             <ChevronsLeft className="text-yellow-400" size={24} />
@@ -46,7 +46,7 @@ export const TrainingHUD: React.FC<TrainingHUDProps> = ({ state, onReset, onTogg
         
         <button 
             onClick={onToggleDummy}
-            className="w-40 bg-slate-800/90 hover:bg-slate-700 px-4 py-4 rounded-l-xl border-r-4 border-blue-500 shadow-lg flex flex-col items-start transition-all hover:w-44"
+            className="w-44 bg-slate-800/90 hover:bg-slate-700 px-4 py-4 rounded-l-xl border-r-4 border-blue-500 shadow-lg flex flex-col items-start transition-all hover:w-48 cursor-pointer"
         >
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">DUMMY ACTION</span>
             <span className="text-blue-400 font-header text-lg">{currentDummyMode}</span>

@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { Globe, Users, Lock, RefreshCw, Search, Play, Swords, Hash } from 'lucide-react';
+import { Globe, Users, Lock, RefreshCw, Search, Play, Swords, Hash, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface RoomBrowserTabProps {
     rooms: any[];
     refreshRooms: () => void;
     joinRoom: (room: any) => void;
+    joinRoomAsSpectator?: (room: any) => void;
     searchQuery: string;
     setSearchQuery: (q: string) => void;
     errorMsg: string | null;
@@ -18,6 +19,7 @@ export const RoomBrowserTab: React.FC<RoomBrowserTabProps> = ({
     rooms,
     refreshRooms,
     joinRoom,
+    joinRoomAsSpectator,
     searchQuery,
     setSearchQuery,
     errorMsg,
@@ -108,16 +110,35 @@ export const RoomBrowserTab: React.FC<RoomBrowserTabProps> = ({
                                             </div>
                                             <span className="text-[9px] font-black text-stone-600 uppercase tracking-widest">{room.id.substring(0, 8)}</span>
                                         </div>
+                                        {room.spectators && room.spectators.length > 0 && (
+                                            <div className="flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md">
+                                                <Eye size={10} className="text-purple-400" />
+                                                <span className="text-[9px] font-black text-purple-400">{room.spectators.length}</span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
-                                <button 
-                                    onClick={() => { playSFX('confirm'); joinRoom(room); }}
-                                    className="bg-orange-600 hover:bg-orange-500 text-black p-4 rounded-2xl transition-all shadow-xl shadow-orange-600/10 hover:shadow-orange-600/20 active:scale-90 relative overflow-hidden group/join"
-                                >
-                                    <Play size={20} fill="currentColor" className="relative z-10" />
-                                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/join:translate-y-0 transition-transform duration-300" />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {joinRoomAsSpectator && (
+                                        <button 
+                                            title="Espectar Partida"
+                                            onClick={() => { playSFX('confirm'); joinRoomAsSpectator(room); }}
+                                            className="bg-stone-900 hover:bg-stone-800 text-stone-300 hover:text-white p-3.5 rounded-2xl border border-white/10 hover:border-purple-500/50 transition-all shadow-xl active:scale-90 relative overflow-hidden group/spectate cursor-pointer flex items-center gap-1.5"
+                                        >
+                                            <Eye size={18} className="text-purple-400 group-hover/spectate:scale-110 transition-transform" />
+                                        </button>
+                                    )}
+
+                                    <button 
+                                        title="Entrar na Sala"
+                                        onClick={() => { playSFX('confirm'); joinRoom(room); }}
+                                        className="bg-orange-600 hover:bg-orange-500 text-black p-4 rounded-2xl transition-all shadow-xl shadow-orange-600/10 hover:shadow-orange-600/20 active:scale-90 relative overflow-hidden group/join cursor-pointer"
+                                    >
+                                        <Play size={20} fill="currentColor" className="relative z-10" />
+                                        <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/join:translate-y-0 transition-transform duration-300" />
+                                    </button>
+                                </div>
                             </motion.div>
                         ))
                     ) : (

@@ -163,8 +163,27 @@ export class BeamConfigKeyManager {
         const configured = this.registerBeam(key, key, baseBeam.name || key, baseBeam);
         return configured;
       }
-      // Return standard built-in beams directly without generating config keys or auto-migrating
       return baseBeam;
+    }
+
+    // Dynamic fallback for CHAVE_BEAM_001, CHAVE_BEAM_1, BEAM_1, etc.
+    let candidateBaseId = "";
+    const numMatch = key.match(/\d+/);
+    if (numMatch) {
+      const num = parseInt(numMatch[0], 10);
+      candidateBaseId = `BEAM_${num}`;
+      if (!BEAM_DATABASE[candidateBaseId]) {
+        candidateBaseId = `BEAM_${String(num).padStart(3, '0')}`;
+      }
+    }
+    if (!candidateBaseId || !BEAM_DATABASE[candidateBaseId]) {
+      candidateBaseId = "BEAM";
+    }
+
+    if (BEAM_DATABASE[candidateBaseId]) {
+      const baseBeam = BEAM_DATABASE[candidateBaseId];
+      const configured = this.registerBeam(key, candidateBaseId, baseBeam.name || key, baseBeam);
+      return configured;
     }
 
     return undefined;
@@ -271,21 +290,20 @@ export class BeamConfigKeyManager {
 
             const existing = this.registry.get(currentBeamKey);
             if (existing) {
-              // Deep merge logic to make sure static overrides from files take precedence!
               const merged = {
-                ...existing,
                 ...mergedProperties,
-                start: (existing.start || mergedProperties.start) ? {
-                  ...existing.start,
-                  ...mergedProperties.start
+                ...existing,
+                start: (mergedProperties.start || existing.start) ? {
+                  ...mergedProperties.start,
+                  ...existing.start
                 } : undefined,
-                middle: (existing.middle || mergedProperties.middle) ? {
-                  ...existing.middle,
-                  ...mergedProperties.middle
+                middle: (mergedProperties.middle || existing.middle) ? {
+                  ...mergedProperties.middle,
+                  ...existing.middle
                 } : { imageUrl: '', frames: 1, frameWidth: 0, frameHeight: 0 },
-                end: (existing.end || mergedProperties.end) ? {
-                  ...existing.end,
-                  ...mergedProperties.end
+                end: (mergedProperties.end || existing.end) ? {
+                  ...mergedProperties.end,
+                  ...existing.end
                 } : undefined,
               } as ConfiguredBeam;
               this.registry.set(currentBeamKey, merged);
@@ -384,10 +402,17 @@ export class BeamConfigKeyManager {
 
   private loadFromStorage() {
     try {
-      // Clear legacy storage to prevent conflicts with codebase static configurations
-      localStorage.removeItem("EXCLUSIVE_BEAMS_REGISTRY");
+      if (typeof localStorage !== "undefined") {
+        const saved = localStorage.getItem("EXCLUSIVE_BEAMS_REGISTRY_V2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          Object.keys(parsed).forEach((k) => {
+            this.registry.set(k, parsed[k]);
+          });
+        }
+      }
     } catch (e) {
-      // Ignore
+      console.error("Error loading BeamConfigKeyManager from storage:", e);
     }
     
     // Ensure all base characters are migrated to exclusive animation keys and clean up orphans
@@ -399,7 +424,16 @@ export class BeamConfigKeyManager {
     }
   }
 
-  private saveToStorage() {
-    // Completely removed local storage persistence to prevent cache sync bugs
+  public saveToStorage() {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const obj: Record<string, ConfiguredBeam> = {};
+      this.registry.forEach((val, key) => {
+        obj[key] = val;
+      });
+      localStorage.setItem("EXCLUSIVE_BEAMS_REGISTRY_V2", JSON.stringify(obj));
+    } catch (e) {
+      console.error("Error saving BeamConfigKeyManager to storage:", e);
+    }
   }
 }

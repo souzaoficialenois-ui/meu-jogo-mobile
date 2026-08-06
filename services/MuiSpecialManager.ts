@@ -4,6 +4,7 @@ import { PlayerState } from "../types";
 import { Projectile } from "./Projectile";
 import { AudioManager } from "./AudioManager";
 import { CollisionHelper } from "./CollisionHelper";
+import { CombatManager } from "./CombatManager";
 
 export class MuiSpecialManager {
   // Chamada no loop principal da GameEngine para controlar a progressão sequencial
@@ -87,7 +88,7 @@ export class MuiSpecialManager {
           engine.particleManager.spawn("SPARK", p.pos.x, p.pos.y, 5);
 
           // Aplica dano e arremessa o oponente
-          opp.takeDamage(120);
+          opp.takeDamage(CombatManager.getDamageByPercentage(opp, 'SPECIAL', 15, 1, p));
           opp.state = PlayerState.LAUNCHED;
           opp.velocity.x = p.facingRight ? 20 : -20;
           opp.velocity.y = -5;
@@ -192,7 +193,7 @@ export class MuiSpecialManager {
       if (dist) {
         if (!p.hasHit) {
           p.hasHit = true;
-          opp.takeDamage(120);
+          opp.takeDamage(CombatManager.getDamageByPercentage(opp, 'SPECIAL', 15, 1, p));
           opp.state = PlayerState.LAUNCHED;
           opp.velocity.x = 0;
           opp.velocity.y = -22; // Lançado para longe verticalmente
@@ -236,7 +237,7 @@ export class MuiSpecialManager {
           AudioManager.getInstance().playSFX("vanish");
           engine.particleManager.spawn("SPARK", p.pos.x, p.pos.y, 5);
 
-          opp.takeDamage(80);
+          opp.takeDamage(CombatManager.getDamageByPercentage(opp, 'SPECIAL', 5, 1, p));
           opp.state = PlayerState.HIT;
           opp.stunTimer = 180;
           opp.gravityDisabledTimer = 180;
@@ -309,7 +310,7 @@ export class MuiSpecialManager {
           const crossed = p.pos.y <= opp.pos.y + 20;
           if (crossed && !p.hasHit) {
             p.hasHit = true;
-            opp.takeDamage(150);
+            opp.takeDamage(CombatManager.getDamageByPercentage(opp, 'SPECIAL', 10, 1, p));
             opp.state = PlayerState.LAUNCHED;
             opp.velocity.x = p.facingRight ? 18 : -18;
             opp.velocity.y = -10;

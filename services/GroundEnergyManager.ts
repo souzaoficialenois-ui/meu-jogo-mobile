@@ -751,6 +751,8 @@ export class GroundEnergyManager {
     specificGravity?: number,
     specificBounciness?: number
   ) {
+    if (type === 'dust') return; // Disabled dust particles per user request
+
     if (type === 'pebble') {
       let activePebblesCount = 0;
       const activePebbles: GroundParticle[] = [];
@@ -1035,31 +1037,33 @@ export class GroundEnergyManager {
 
         // Avoid infinite offset leaks
         const maxDisp = 35;
-        if (Math.abs(dX) > 0.1) {
-          dX = Math.max(-maxDisp, Math.min(maxDisp, dX));
-          ctx.drawImage(
-            groundSprite,
-            0,
-            sy,
-            groundSprite.naturalWidth,
-            sh,
-            bgX + dX,
-            dy,
-            bgW,
-            dh
-          );
-        } else {
-          ctx.drawImage(
-            groundSprite,
-            0,
-            sy,
-            groundSprite.naturalWidth,
-            sh,
-            bgX,
-            dy,
-            bgW,
-            dh
-          );
+        if (groundSprite.complete && groundSprite.naturalWidth > 0 && groundSprite.naturalHeight > 0 && sh > 0 && dh > 0 && bgW > 0) {
+          if (Math.abs(dX) > 0.1) {
+            dX = Math.max(-maxDisp, Math.min(maxDisp, dX));
+            ctx.drawImage(
+              groundSprite,
+              0,
+              sy,
+              groundSprite.naturalWidth,
+              sh,
+              bgX + dX,
+              dy,
+              bgW,
+              dh
+            );
+          } else {
+            ctx.drawImage(
+              groundSprite,
+              0,
+              sy,
+              groundSprite.naturalWidth,
+              sh,
+              bgX,
+              dy,
+              bgW,
+              dh
+            );
+          }
         }
       }
     } else if (groundSprite.complete && groundSprite.naturalWidth > 0 && groundSprite.naturalHeight > 0) {
@@ -1101,7 +1105,7 @@ export class GroundEnergyManager {
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.arc(wave.x, groundY, wave.radius + wave.width, 0, Math.PI * 2);
+        ctx.arc(wave.x, groundY, Math.max(0, wave.radius + wave.width), 0, Math.PI * 2);
         ctx.fill();
       });
 
@@ -1168,7 +1172,7 @@ export class GroundEnergyManager {
 
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(wave.x, groundY, wave.radius + wave.width, 0, Math.PI * 2);
+      ctx.arc(wave.x, groundY, Math.max(0, wave.radius + wave.width), 0, Math.PI * 2);
       ctx.fill();
     });
 
@@ -1241,7 +1245,7 @@ export class GroundEnergyManager {
         // Small sandy pebbles
         if (p.shape === 'circle') {
           ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, Math.max(0, p.size / 2), 0, Math.PI * 2);
           ctx.fill();
         } else {
           ctx.fillRect(p.x, p.y, p.size, p.size);
@@ -1252,7 +1256,7 @@ export class GroundEnergyManager {
         ctx.globalCompositeOperation = 'screen';
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, Math.max(0, p.size / 2), 0, Math.PI * 2);
         ctx.fill();
         
         ctx.fillStyle = p.color;
@@ -1264,7 +1268,7 @@ export class GroundEnergyManager {
         // Wind-carried heat dust
         ctx.globalCompositeOperation = 'screen';
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, Math.max(0, p.size), 0, Math.PI * 2);
         ctx.fill();
       }
 

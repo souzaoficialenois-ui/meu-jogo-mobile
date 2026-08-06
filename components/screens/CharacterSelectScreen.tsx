@@ -179,14 +179,14 @@ export const CharacterSelectScreen: React.FC<{
 
                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4 safe-content-flow">
                         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                            {rosterList.map(char => {
+                            {rosterList.map((char, index) => {
                                 const isPreview = activePreviewId === char.id;
                                 const unlockedChar = unlockedCharacters.find(u => u.id === char.id);
                                 const level = unlockedChar ? unlockedChar.level : 1;
 
                                 return (
                                     <motion.button
-                                        key={`roster-${char.id}`}
+                                        key={`roster-${char.id}-${index}`}
                                         onClick={() => {
                                             setPreviewCharId(char.id);
                                             AudioManager.getInstance().playSFX('click');
@@ -351,7 +351,7 @@ export const CharacterSelectScreen: React.FC<{
                                                        const isSelectedSk = selectedSelectSkill?.name === sk.name;
                                                        return (
                                                            <button
-                                                              key={sk.name}
+                                                              key={`select-skill-${sk.name}-${index}`}
                                                               onClick={() => { setSelectedSelectSkill(sk); AudioManager.getInstance().playSFX('click'); }}
                                                               className={`
                                                                  px-3 py-1.5 text-left rounded-lg border font-bold text-[10px] uppercase transition-all shrink-0

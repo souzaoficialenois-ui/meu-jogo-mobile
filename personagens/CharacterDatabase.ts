@@ -140,6 +140,9 @@ if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
                 ...mergedAnims[key],
                 ...overrideAnim
               };
+              if (fileAnim && (fileAnim as any).auraConfigKey && !(overrideAnim as any).auraConfigKey) {
+                (mergedAnims[key] as any).auraConfigKey = (fileAnim as any).auraConfigKey;
+              }
             });
             char.spriteConfig.animations = mergedAnims;
           }

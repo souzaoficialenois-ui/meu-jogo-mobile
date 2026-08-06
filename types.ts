@@ -175,6 +175,8 @@ export interface DebugInfo {
 
 export type GameMode = 'ARCADE' | 'TRAINING' | 'TOURNAMENT' | 'ONLINE' | 'SURVIVAL' | 'BOSS' | 'SUMMON' | 'STORY' | 'LOCAL_VS';
 
+export type BattleEndPhase = 'NONE' | 'DEFEAT_ANIM' | 'VICTORY_ANIM' | 'RESULT_SHOW' | 'FINISHED';
+
 export interface GameState {
   p1Stats: PlayerStats;
   p2Stats: PlayerStats;
@@ -203,14 +205,35 @@ export interface GameState {
   gameMode?: GameMode;
   wave?: number;
   matchStats?: {
-    p1: { damageDealt: number; maxCombo: number };
-    p2: { damageDealt: number; maxCombo: number };
+    p1: {
+      name?: string;
+      portraitUrl?: string;
+      damageDealt: number;
+      maxCombo: number;
+      totalComboHits?: number;
+      specialAttacksUsed?: number;
+      ultimatesUsed?: number;
+      finalHealthPct?: number;
+    };
+    p2: {
+      name?: string;
+      portraitUrl?: string;
+      damageDealt: number;
+      maxCombo: number;
+      totalComboHits?: number;
+      specialAttacksUsed?: number;
+      ultimatesUsed?: number;
+      finalHealthPct?: number;
+    };
   };
   isBeamClashActive?: boolean;
   beamClashVisualProgress?: number;
   beamClashProgress?: number;
   beamClashTimer?: number;
   beamClashP1FacingRight?: boolean;
+  battleEndPhase?: BattleEndPhase;
+  battleEndResultText?: string;
+  battleEndResultType?: 'WIN' | 'LOSE' | 'DRAW';
 }
 
 export enum SceneName {
@@ -253,7 +276,8 @@ export enum SceneName {
   SIDE_SELECTION = 'SIDE_SELECTION',
   CREDITS = 'CREDITS',
   HALL_OF_FAME = 'HALL_OF_FAME',
-  WAREHOUSE = 'WAREHOUSE'
+  WAREHOUSE = 'WAREHOUSE',
+  TITLES_GALLERY = 'TITLES_GALLERY'
 }
 
 export type BattlePassTier = 'FREE' | 'ELITE' | 'PREMIUM';
@@ -353,8 +377,18 @@ export interface GameSettings {
   musicVolume: number;
   sfxVolume: number;
   fullscreen: boolean;
-  graphicsQuality: 'LOW' | 'MEDIUM' | 'HIGH';
+  graphicsQuality: 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH' | 'ULTRA' | 'CUSTOM';
   particlesEnabled: boolean;
+  postProcessingEnabled?: boolean;
+  shadowsEnabled?: boolean;
+  shadowType?: 'NONE' | 'OVAL' | 'SILHOUETTE';
+  lightingType?: 'NONE' | 'BASIC' | 'ADVANCED' | 'DYNAMIC';
+  particleDensity?: 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH' | 'MAX';
+  fullAuras?: boolean;
+  energyDistortion?: boolean;
+  effectsLevel?: 'LOW' | 'MEDIUM' | 'HIGH' | 'FULL';
+  weatherEffects?: boolean;
+  stageDestruction?: boolean;
   screenShakeEnabled: boolean;
   showDamageNumbers: boolean;
   buttonSensitivity: number;
@@ -372,10 +406,17 @@ export interface GameSettings {
   uiVolume?: number;
   voiceVolume?: number;
   keybindings?: Record<string, string>;
+  p2Keybindings?: Record<string, string>;
+  gamepadBindings?: Record<string, number>;
   subtitlesEnabled?: boolean;
   subtitlesBackgroundEnabled?: boolean;
   subtitlesShowSpeakerName?: boolean;
   subtitlesFontSize?: 'SMALL' | 'MEDIUM' | 'LARGE';
+  spatialAudioMode?: 'DISABLED' | 'NORMAL' | 'ADVANCED';
+  glowQuality?: 'DISABLED' | 'NORMAL' | 'ULTRA';
+  auraGlowQuality?: 'DISABLED' | 'NORMAL' | 'ULTRA';
+  touchEffectInBattle?: boolean;
+  touchEffectColor?: 'RANDOM' | 'GOLD' | 'BLUE' | 'ROSE' | 'GREEN' | 'PURPLE' | 'RED' | 'SILVER';
 }
 
 export interface RPGStats {
@@ -409,9 +450,12 @@ export interface AnimationFrameData {
     beamConfig?: CharacterBeamOverrides; // Character-specific visual overrides for this beam when spawned
     projectileConfig?: CharacterBeamOverrides; // Character-specific visual overrides for this projectile when spawned
     projectileId?: string; // ID of the Custom Projectile for non-beams
+    createsProjectile?: string; // ID of created projectile
+    specialAnim?: string;
     createsBeamCharacterId?: string; // ID of the character the beam belongs to (if different from current char)
     isVertical?: boolean;
     isGif?: boolean;
+    useGifDelay?: boolean;
     kiOriginX?: number;
     kiOriginY?: number;
     cameraFocusX?: number; // Camera focus point
@@ -598,6 +642,7 @@ export interface CharacterData {
   maxHp?: number;
   color: string;
   rarity: RarityTier;
+  portraitUrl?: string;
   tags: string[];
   level: number;
   currentXp: number;
@@ -633,11 +678,11 @@ export interface RankedData {
   subRank: string; // e.g. V, IV, I (or empty for high elos)
   points: number;
   bestRankName: string; 
-  tier: RankTier;
-  winStreak: number;
-  maxWinStreak: number;
-  totalMatches: number;
-  winRate: number; // 0 to 100
+  tier?: RankTier;
+  winStreak?: number;
+  maxWinStreak?: number;
+  totalMatches?: number;
+  winRate?: number; // 0 to 100
   lastMatchTimestamp?: number;
   topCharacterId?: string;
   seasonRewardsClaimed?: boolean;
@@ -649,7 +694,17 @@ export interface InventoryItem {
     isNew: boolean;
 }
 
+export interface CharacterCombatStats {
+  wins: number;
+  losses: number;
+  matches: number;
+  koCount?: number;
+  maxCombo?: number;
+  lastUsedTimestamp?: number;
+}
+
 export interface PlayerProfile {
+  id?: string;
   playerId: string; // GLOBAL UNIQUE ID (UUID)
   numericId?: string; // 4+ DIGIT DISPLAY ID
   name: string;
@@ -660,6 +715,10 @@ export interface PlayerProfile {
   redeemedCodes?: string[];
   wins: number;
   losses: number;
+  characterStats?: Record<string, CharacterCombatStats>;
+  coins?: number;
+  gems?: number;
+  unlockedCharacterIds?: string[];
   role?: UserRole;
   isBanned?: boolean;
   bio?: string;
@@ -712,7 +771,7 @@ export interface Banner {
 
 export type MissionType = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'SEASONAL' | 'SPECIAL' | 'LAUNCH' | 'ANNIVERSARY' | 'COLLAB' | 'COMPETITIVE' | 'WEEKEND' | 'EVENT';
 export type MissionAction = 'BATTLE_PLAY' | 'BATTLE_WIN' | 'TRAINING_PLAY' | 'SUMMON' | 'EVOLVE_STAT' | 'LOGIN' | 'DAMAGE_DEALT' | 'SUPER_EXECUTE' | 'ULTIMATE_EXECUTE' | 'TAG_EXECUTE' | 'STORY_COMPLETE' | 'SURVIVAL_COMPLETE' | 'BOSS_DEFEAT' | 'REACH_LEVEL';
-export type RewardType = 'COIN' | 'TICKET' | 'GEM' | 'CRYSTAL' | 'CHARACTER' | 'AVATAR' | 'AVATAR_BG' | 'STAGE' | 'TITLE' | 'FRAME' | 'EMOJI' | 'XP' | 'BUNDLE';
+export type RewardType = 'COIN' | 'TICKET' | 'GEM' | 'CRYSTAL' | 'CHARACTER' | 'AVATAR' | 'AVATAR_BG' | 'STAGE' | 'TITLE' | 'FRAME' | 'EMOJI' | 'XP' | 'BUNDLE' | 'ROOM_TOKEN';
 
 export interface Mission {
     id: string;

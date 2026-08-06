@@ -14,6 +14,7 @@ import { BeamConfigKeyManager } from "./BeamConfigKeyManager";
 import { ProjectileConfigKeyManager } from "./ProjectileConfigKeyManager";
 import { EffectConfigKeyManager } from "./EffectConfigKeyManager";
 import { CollisionHelper } from "./CollisionHelper";
+import { GlowOptimizer } from "./GlowOptimizer";
 
 function getStageGroundColor(stageTheme: string): string {
   const theme = (stageTheme || "").toUpperCase().trim();
@@ -46,6 +47,11 @@ export class GameRenderer {
   private offscreenCanvas: HTMLCanvasElement | null = null;
 
   private getOffscreen(w: number, h: number) {
+    if (!w || !h || w <= 0 || h <= 0 || isNaN(w) || isNaN(h)) return null;
+    const targetW = Math.floor(w);
+    const targetH = Math.floor(h);
+    if (targetW <= 0 || targetH <= 0) return null;
+
     if (!this.offscreenCanvas) {
       if (typeof document !== "undefined") {
         this.offscreenCanvas = document.createElement("canvas");
@@ -53,18 +59,18 @@ export class GameRenderer {
     }
     const c = this.offscreenCanvas;
     if (c) {
-      if (c.width !== w || c.height !== h) {
-        c.width = w;
-        c.height = h;
+      if (c.width !== targetW || c.height !== targetH) {
+        c.width = targetW;
+        c.height = targetH;
       }
       const tempCtx = c.getContext("2d");
       if (tempCtx) {
         tempCtx.filter = "none";
         tempCtx.imageSmoothingEnabled = false;
         tempCtx.setTransform(1, 0, 0, 1, 0, 0);
-        tempCtx.clearRect(0, 0, w, h);
+        tempCtx.clearRect(0, 0, targetW, targetH);
+        return { canvas: c, ctx: tempCtx };
       }
-      return { canvas: c, ctx: tempCtx! };
     }
     return null;
   }
@@ -77,6 +83,9 @@ export class GameRenderer {
   public render() {
     const ctx = this.engine.ctx;
     if (!ctx || !this.engine.canvas) return;
+
+    const fps = (this.engine as any).performanceMonitor?.getMetrics().fps || 60;
+    GlowOptimizer.getInstance().beginFrame(fps);
 
     const fgCtx = (this.engine as any).fgCtx || ctx;
     // Reset any applied transformations
@@ -149,14 +158,17 @@ export class GameRenderer {
 
       if (effect.layer === 'BACK' || effect.type === "FINAL_IMPACT_EFFECT") {
         backEffects.push(effect);
-      } else if (effect.layer === 'FRONT') {
+      } else if (effect.layer === 'FRONT' || effect.type === "GENKIDAMA_DISPERSION_DUST") {
         frontEffects.push(effect);
       } else {
         // Lógica de distinção entre background (mid) e foreground baseada no tipo e imagem
         const isForegroundType =
           effect.type === "FULL_SCREEN_DUST" ||
           effect.type === "COMBO_HIT" ||
+          effect.type === "COMBO_HIT_MEDIUM" ||
           effect.type === "COMBO_HIT_HEAVY" ||
+          effect.type === "COMBO_HIT_BEANS" ||
+          effect.type === "HIT_BEAM" ||
           effect.type === "GROUND_DESTROYED" ||
           effect.type === "DOUBLE_TAP_DUST" ||
           effect.type === "CHARGING_PEDRA" ||
@@ -219,7 +231,7 @@ export class GameRenderer {
       if (effect.rotation !== undefined) fgCtx.rotate((effect.rotation * Math.PI) / 180);
 
       const dx = -w / 2;
-      const isCentered = isFullScreenEffect || effect.type === "CHARGING_PEDRA" || effect.type?.includes("COMBO") || (effect.imageUrl && effect.imageUrl.includes("impacto"));
+      const isCentered = isFullScreenEffect || effect.type === "CHARGING_PEDRA" || effect.type === "GENKIDAMA_DISPERSION_DUST" || (effect.imageUrl && effect.imageUrl.includes("genkidama.gif")) || effect.type?.includes("COMBO") || (effect.imageUrl && effect.imageUrl.includes("impacto"));
       const dy = isCentered ? -h / 2 : -h;
 
       const config = effect.configKey ? effMgr.getEffect(effect.configKey) : null;
@@ -376,58 +388,88 @@ export class GameRenderer {
       const shadowScaleY = -Math.max(0.15, 0.3 - distanceToGround * 0.0005);
       const shadowOpacity = Math.max(0, 0.4 - distanceToGround * 0.001);
 
-      if (shadowOpacity > 0) {
-        fgCtx.globalAlpha = shadowOpacity;
+      // Check Graphic Profile shadow settings
+      let shadowsEnabled = true;
+      let shadowType: 'NONE' | 'OVAL' | 'SILHOUETTE' = 'OVAL';
 
+      try {
+        const savedSettings = localStorage.getItem("dd2d_settings");
+        if (savedSettings) {
+          const parsed = JSON.parse(savedSettings);
+          if (parsed.shadowsEnabled === false || parsed.shadowType === 'NONE') {
+            shadowsEnabled = false;
+          } else {
+            shadowType = parsed.shadowType || (parsed.graphicsQuality === 'ULTRA' ? 'SILHOUETTE' : 'OVAL');
+          }
+        }
+      } catch (e) {}
+
+      if (shadowsEnabled && shadowOpacity > 0) {
         const groundCenterX = p.x + p.width / 2;
 
-        fgCtx.translate(groundCenterX, groundY);
-        fgCtx.scale(shadowScaleX, shadowScaleY);
+        if (shadowType === 'OVAL') {
+          // Sombras Ovais (Baixo, Médio, Alto)
+          fgCtx.save();
+          fgCtx.globalAlpha = Math.max(0, 0.45 - distanceToGround * 0.001);
+          fgCtx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+          fgCtx.beginPath();
+          const radX = Math.max(12, p.width * 0.45 * (1 - Math.min(0.6, distanceToGround * 0.0012)));
+          const radY = Math.max(4, p.width * 0.14 * (1 - Math.min(0.6, distanceToGround * 0.0012)));
+          fgCtx.ellipse(groundCenterX, groundY, radX, radY, 0, 0, Math.PI * 2);
+          fgCtx.fill();
+          fgCtx.restore();
+        } else if (shadowType === 'SILHOUETTE') {
+          // Sombras em Silhueta (Ultra)
+          fgCtx.globalAlpha = shadowOpacity;
+          fgCtx.translate(groundCenterX, groundY);
+          fgCtx.scale(shadowScaleX, shadowScaleY);
 
-        // Project shadow direction (shear). Slight tilt towards the front.
-        const shear = p.facingRight ? -0.4 : 0.4;
-        fgCtx.transform(1, 0, shear, 1, 0, 0);
+          // Project shadow direction (shear). Slight tilt towards the front.
+          const shear = p.facingRight ? -0.4 : 0.4;
+          fgCtx.transform(1, 0, shear, 1, 0, 0);
 
-        if (p.rotation) {
-          fgCtx.translate(0, -p.height / 2);
-          const shadowRotation = p.facingRight ? p.rotation : -p.rotation;
-          fgCtx.rotate((shadowRotation * Math.PI) / 180);
-          fgCtx.translate(0, p.height / 2);
+          if (p.rotation) {
+            fgCtx.translate(0, -p.height / 2);
+            const shadowRotation = p.facingRight ? p.rotation : -p.rotation;
+            fgCtx.rotate((shadowRotation * Math.PI) / 180);
+            fgCtx.translate(0, p.height / 2);
+          }
+
+          this.engine.animationManager.drawPlayer(
+            fgCtx,
+            p.data,
+            p.state,
+            -p.width / 2, // Center the bottom of the character at 0,0
+            -p.height,
+            p.width,
+            p.height,
+            p.facingRight,
+            p.animFrame,
+            p.stunTimer > 0,
+            p.comboType as any,
+            p.comboStep,
+            p.ataque,
+            p.ultPhase,
+            p.nextTransformId,
+            p.attackTimer,
+            p.ultType,
+            true, // isGrounded does not affect shadow visual directly (unless animation changes)
+            p.isDetransforming,
+            true, // isShadow = true
+            p.isKOTag,
+            false, // sparkingActive
+            false, // superDashActive
+            undefined, // auraH
+            undefined, // auraW
+            p.wasCrouching,
+            p.stunTimer,
+            p.animFinished,
+            (p as any).customSubphase,
+            undefined,
+            p.lastState,
+            p.superDashPhase
+          );
         }
-
-        this.engine.animationManager.drawPlayer(
-          fgCtx,
-          p.data,
-          p.state,
-          -p.width / 2, // Center the bottom of the character at 0,0
-          -p.height,
-          p.width,
-          p.height,
-          p.facingRight,
-          p.animFrame,
-          p.stunTimer > 0,
-          p.comboType as any,
-          p.comboStep,
-          p.ataque,
-          p.ultPhase,
-          p.nextTransformId,
-          p.attackTimer,
-          p.ultType,
-          true, // isGrounded does not affect shadow visual directly (unless animation changes)
-          p.isDetransforming,
-          true, // isShadow = true
-          p.isKOTag,
-          false, // sparkingActive
-          false, // superDashActive
-          undefined, // auraH
-          undefined, // auraW
-          p.wasCrouching,
-          p.stunTimer,
-          p.animFinished,
-          (p as any).customSubphase,
-          undefined,
-          p.lastState
-        );
       }
 
       fgCtx.restore();
@@ -692,8 +734,24 @@ export class GameRenderer {
           p.animFinished,
           (p as any).customSubphase,
           undefined,
-          p.lastState
+          p.lastState,
+          p.superDashPhase
         );
+
+        this.engine.animationManager.drawPlayerAuraParticles(
+          fgCtx,
+          p.data,
+          p.state,
+          p.x,
+          p.y,
+          p.width,
+          p.height,
+          p.facingRight,
+          p.sparkingTimer > 0,
+          p.auraHeightScale,
+          p.auraWidthScale
+        );
+
         fgCtx.restore();
       }
     });
@@ -1067,7 +1125,22 @@ export class GameRenderer {
         p.animFinished,
         (p as any).customSubphase,
         p.currentPhaseAnim || undefined,
-        p.lastState
+        p.lastState,
+        p.superDashPhase
+      );
+
+      this.engine.animationManager.drawPlayerAuraParticles(
+        fgCtx,
+        p.data,
+        p.state,
+        p.x,
+        p.y,
+        p.width,
+        p.height,
+        p.facingRight,
+        p.sparkingTimer > 0,
+        p.auraHeightScale,
+        p.auraWidthScale
       );
 
       fgCtx.restore();
@@ -1161,6 +1234,8 @@ export class GameRenderer {
           effect.type === "COMBO_HIT_HEAVY" ||
           effect.type === "DRAGON_RUSH_START_EFFECT" ||
           effect.type === "KAME_GENKI_COLLISION" ||
+          effect.type === "GENKIDAMA_DISPERSION_DUST" ||
+          (effect.imageUrl && effect.imageUrl.includes("genkidama.gif")) ||
           (effect.type && effect.type.includes("COMBO")) ||
           (effect.imageUrl &&
             (effect.imageUrl.includes("efeitos/impacto") ||
@@ -1416,7 +1491,7 @@ export class GameRenderer {
         // Draw Genkidama / Hakai / Sphere Ultimate circular hitbox
         this.engine.projectiles.forEach((proj) => {
           if (proj instanceof Genkidama && proj.active) {
-            let radius = proj.getHitboxRadius();
+            let radius = Math.max(0, proj.getHitboxRadius());
             fgCtx.strokeStyle = "rgba(255, 0, 255, 0.8)"; // Magenta for huge spheres
             fgCtx.beginPath();
             fgCtx.arc(proj.genkidamaX, proj.genkidamaY, radius, 0, Math.PI * 2);
@@ -1617,7 +1692,7 @@ export class GameRenderer {
       fgCtx.restore();
     }
 
-    // this.engine.particleManager.draw(fgCtx);
+    this.engine.particleManager.draw(fgCtx);
 
     // Draw Physical Ground Debris Particles (DGDPS) in front of characters on the foreground layer
     GroundEnergyManager.getInstance().drawGroundParticles(
@@ -1635,61 +1710,118 @@ export class GameRenderer {
       fgCtx.fillRect(0, 0, viewW, viewH);
     }
   }
-  public drawGenkidamaProjectile(ctx: CanvasRenderingContext2D, p: Genkidama) {
-    let activeId = p.baseProjectileId;
-    if (p.genkidamaState === "ground") {
-      activeId = p.baseProjectileId + "_GROUND";
-    } else if (p.genkidamaState === "explode") {
-      activeId = p.baseProjectileId + "_EXPLODE";
-    }
+  public getGlowQuality(): 'DISABLED' | 'NORMAL' | 'ULTRA' {
+    try {
+      const saved = localStorage.getItem("dd2d_settings");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.glowQuality) return parsed.glowQuality;
+        if (parsed.graphicsQuality === 'VERY_LOW' || parsed.graphicsQuality === 'LOW') return 'DISABLED';
+        if (parsed.graphicsQuality === 'ULTRA') return 'ULTRA';
+      }
+    } catch (e) {}
+    return 'NORMAL';
+  }
 
+  public drawGenkidamaProjectile(ctx: CanvasRenderingContext2D, p: Genkidama) {
     const keyManager = ProjectileConfigKeyManager.getInstance();
-    let finalFamily = keyManager.getProjectileConfig(activeId);
-    if (!finalFamily && p.genkidamaState === "ground") {
-      // Fallback for ground to base
-      finalFamily = keyManager.getProjectileConfig(p.baseProjectileId);
-    }
-    if (!finalFamily && p.genkidamaState === "explode") {
-      const baseConfig = keyManager.getProjectileConfig(p.baseProjectileId) as any;
-      if (baseConfig && baseConfig.baseProjectileId) {
-        finalFamily = keyManager.getProjectileConfig(baseConfig.baseProjectileId + "_EXPLODE");
-      }
-    }
-    if (!finalFamily && p.genkidamaState === "explode") {
-      let fallbackKey = "GENKIDAMA_1_EXPLODE";
-      const baseKey = p.baseProjectileId.toUpperCase();
-      if (baseKey.includes("GENKIDAMA_3") || baseKey.includes("GENKIDAMA_5") || baseKey.includes("GENKIDAMA_7")) {
-        fallbackKey = "GENKIDAMA_3_EXPLODE";
-      } else if (baseKey.includes("GENKIDAMA_2")) {
-        fallbackKey = "GENKIDAMA_2_EXPLODE";
-      }
-      finalFamily = keyManager.getProjectileConfig(fallbackKey);
-    }
+    let finalFamily = keyManager.getProjectileConfig(p.baseProjectileId);
     if (!finalFamily) return;
 
     const isEgo = p.baseProjectileId === "GENKIDAMA_2";
     const isHakai = p.baseProjectileId === "GENKIDAMA_3";
     const glowColor =
-      finalFamily?.color ||
+      finalFamily?.glowColor ||
+      (finalFamily?.color && finalFamily.color !== "#ffffff" ? finalFamily.color : undefined) ||
       (isEgo ? "#7e22ce" : isHakai ? "#c026d3" : "#60a5fa");
     const particleColor =
       finalFamily?.color ||
       (isEgo ? "#4c1d95" : isHakai ? "#86198f" : "#3b82f6");
 
-    // 1. Draw custom flying/gathering particles for visual depth
+    // 1. Draw custom gathering, orbiting, and dispersing energy particles for visual depth
     if (p.genkidamaParticles && p.genkidamaParticles.length > 0) {
       ctx.save();
       ctx.globalCompositeOperation = "screen";
       for (const part of p.genkidamaParticles) {
+        const alpha = part.alpha !== undefined ? part.alpha : 1.0;
+        if (alpha <= 0) continue;
+
+        ctx.globalAlpha = alpha;
+        const currentSize = Math.max(1, part.size);
+
+        if (part.state === 'gather') {
+          // Trailing energy tail pointing towards Genkidama center
+          const dx = p.genkidamaX - part.x;
+          const dy = p.genkidamaY - part.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 5) {
+            const tailLen = Math.min(25, dist * 0.25);
+            const tailX = part.x - (dx / dist) * tailLen;
+            const tailY = part.y - (dy / dist) * tailLen;
+            const gradTrail = ctx.createLinearGradient(part.x, part.y, tailX, tailY);
+            gradTrail.addColorStop(0, particleColor);
+            gradTrail.addColorStop(1, "transparent");
+            ctx.beginPath();
+            ctx.moveTo(part.x, part.y);
+            ctx.lineTo(tailX, tailY);
+            ctx.strokeStyle = gradTrail;
+            ctx.lineWidth = Math.max(1, currentSize * 0.9);
+            ctx.stroke();
+          }
+        } else if (part.state === 'disperse' && (part.vx || part.vy)) {
+          // Trailing energy tail behind dispersing particle
+          const vx = part.vx || 0;
+          const vy = part.vy || 0;
+          const tailX = part.x - vx * 2.5;
+          const tailY = part.y - vy * 2.5;
+          const gradTrail = ctx.createLinearGradient(part.x, part.y, tailX, tailY);
+          gradTrail.addColorStop(0, particleColor);
+          gradTrail.addColorStop(1, "transparent");
+          ctx.beginPath();
+          ctx.moveTo(part.x, part.y);
+          ctx.lineTo(tailX, tailY);
+          ctx.strokeStyle = gradTrail;
+          ctx.lineWidth = Math.max(1, currentSize * 0.9);
+          ctx.stroke();
+        }
+
+        // Soft outer energy radial aura glow
+        const auraRadius = currentSize * 2.2;
+        const auraGrad = ctx.createRadialGradient(part.x, part.y, 0, part.x, part.y, auraRadius);
+        auraGrad.addColorStop(0, "#ffffff");
+        auraGrad.addColorStop(0.3, glowColor);
+        auraGrad.addColorStop(0.75, particleColor);
+        auraGrad.addColorStop(1, "transparent");
+
         ctx.beginPath();
-        ctx.arc(part.x, part.y, part.size, 0, Math.PI * 2);
+        ctx.arc(part.x, part.y, auraRadius, 0, Math.PI * 2);
+        ctx.fillStyle = auraGrad;
+        ctx.fill();
+
+        // Main vibrant energy core
+        ctx.beginPath();
+        ctx.arc(part.x, part.y, currentSize * 0.85, 0, Math.PI * 2);
         ctx.fillStyle = particleColor;
         ctx.fill();
 
+        // White-hot energy particle center
         ctx.beginPath();
-        ctx.arc(part.x, part.y, part.size * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = "#ffffff"; // White core
+        ctx.arc(part.x, part.y, currentSize * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
         ctx.fill();
+
+        // Micro energy spark rays for larger energy particles
+        if (currentSize > 5) {
+          ctx.beginPath();
+          const sparkLen = currentSize * 1.6;
+          ctx.moveTo(part.x - sparkLen, part.y);
+          ctx.lineTo(part.x + sparkLen, part.y);
+          ctx.moveTo(part.x, part.y - sparkLen);
+          ctx.lineTo(part.x, part.y + sparkLen);
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
       }
       ctx.restore();
     }
@@ -1700,10 +1832,10 @@ export class GameRenderer {
       const gx = p.genkidamaX;
       const gy = p.genkidamaY;
       const baseScale = gAnim.scale || 2.2;
-      const dynamicScale = p.genkidamaState === "explode" ? 1.0 : (p.genkidamaScale !== undefined ? p.genkidamaScale : 1);
+      const dynamicScale = p.genkidamaScale !== undefined ? p.genkidamaScale : 1;
       let scaleMultiplier = baseScale * dynamicScale;
 
-      if ((p.baseProjectileId === "GENKIDAMA_3" || p.baseProjectileId === "CHAVE_GENKIDAMA_5") && p.genkidamaState !== "explode") {
+      if (p.baseProjectileId === "GENKIDAMA_3" || p.baseProjectileId === "CHAVE_GENKIDAMA_5") {
         scaleMultiplier = 2.5 * dynamicScale;
       }
 
@@ -1744,6 +1876,70 @@ export class GameRenderer {
         ctx.globalCompositeOperation = "source-over";
         if (opacity !== undefined) {
           ctx.globalAlpha = opacity;
+        }
+
+        if (p.genkidamaState === "explode") {
+          const totalSteps = 40;
+          const progress = Math.min(1.0, (p.genkidamaFrame || 0) / totalSteps);
+          const groundLevel = WORLD_HEIGHT - (this.engine.groundY || 140);
+
+          const imgH = originalFrameImg.height;
+          const paddedH = (imgH + 2 * padding) * scaleMultiplier;
+
+          // Bottom edge of the sphere in world coordinates
+          const sphereBottom = gy + paddedH / 2;
+          // Dispersion line moving bottom-to-top
+          const dispersionCutoff = sphereBottom - paddedH * progress;
+          const clipBottomY = Math.min(groundLevel, dispersionCutoff);
+
+          ctx.beginPath();
+          ctx.rect(-10000, -10000, 20000, Math.max(0, clipBottomY + 10000));
+          ctx.clip();
+
+          const fadeAlpha = Math.max(0, 1.0 - progress * 0.85);
+          ctx.globalAlpha = (opacity !== undefined ? opacity : 1.0) * fadeAlpha;
+        }
+
+        const glowQual = this.getGlowQuality();
+        if (glowQual !== 'DISABLED') {
+          GlowOptimizer.getInstance().registerGlowObject();
+          const isUltra = glowQual === 'ULTRA';
+          ctx.shadowColor = glowColor;
+          const defaultBlur = isUltra ? 32 : 16;
+          const baseRadius = finalFamily?.glowRadius ?? finalFamily?.glowBlur ?? defaultBlur;
+          const intensity = finalFamily?.glowIntensity ?? 1.0;
+          const reqBlur = Math.round(baseRadius * intensity);
+          const blur = GlowOptimizer.getInstance().getOptimizedBlur(reqBlur, glowQual);
+          ctx.shadowBlur = blur;
+
+          if ((isUltra && GlowOptimizer.getInstance().allowExtraPass(glowQual)) || intensity > 1.2 || finalFamily?.glowColor || finalFamily?.glowRadius !== undefined || finalFamily?.glowBlur !== undefined) {
+            ctx.save();
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = Math.round(blur * 1.7);
+            ctx.globalAlpha = (opacity !== undefined ? opacity : 1.0) * 0.7;
+            ctx.translate(gx, gy);
+            if (p.genkidamaSquishTimer && p.genkidamaSquishTimer > 0) {
+              const progress = p.genkidamaSquishTimer / 60;
+              const squishAmount = Math.sin(progress * Math.PI);
+              const sX = 1.0 + squishAmount * 0.1875;
+              const sY = Math.max(0.05, 1.0 - squishAmount * 0.1);
+              ctx.scale(sX, sY);
+            }
+            const imgW = originalFrameImg.width;
+            const imgH = originalFrameImg.height;
+            const paddedW = imgW + 2 * padding;
+            const paddedH = imgH + 2 * padding;
+            const destPaddedW = paddedW * scaleMultiplier;
+            const destPaddedH = paddedH * scaleMultiplier;
+            ctx.drawImage(
+              filteredCanvas,
+              -destPaddedW / 2,
+              -destPaddedH / 2,
+              destPaddedW,
+              destPaddedH,
+            );
+            ctx.restore();
+          }
         }
 
         ctx.translate(gx, gy);
@@ -1793,6 +1989,16 @@ export class GameRenderer {
     const scaledH = imgH * scale;
 
     ctx.save();
+    const glowQual = this.getGlowQuality();
+    if (glowQual !== 'DISABLED') {
+      const isUltra = glowQual === 'ULTRA';
+      const glowColor = family.glowColor || family.color || "#a855f7";
+      const defaultBlur = isUltra ? 28 : 16;
+      const baseRadius = family.glowRadius ?? family.glowBlur ?? defaultBlur;
+      const intensity = family.glowIntensity ?? 1.0;
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = Math.max(12, Math.round(baseRadius * intensity));
+    }
     // Move to bottom-center of the sprite
     ctx.translate(p.x, p.y);
 
@@ -1925,25 +2131,23 @@ export class GameRenderer {
           filters.push(`contrast(${finalFamily.beamContrast})`);
         }
 
-        // --- ULTRA OPTIMIZATION: Direct GPU-accelerated drawing on the main canvas context ---
-        // This completely eliminates frame rate drops and lag spikes (avoiding massive full-screen canvas copies/filters on every tick).
-        const targetCtx = ctx;
-        ctx.save();
+        const beamFiltersObj = {
+          hueRotate: finalFamily.beamHueRotate || (ownerData.id === "goku_black_rose" ? 130 : undefined),
+          saturate: finalFamily.beamSaturate,
+          brightness: finalFamily.beamBrightness,
+          contrast: finalFamily.beamContrast
+        };
 
-        if (filters.length > 0) {
-          targetCtx.filter = filters.join(" ");
-        }
-
-        if (finalFamily.beamOpacity !== undefined) {
-          targetCtx.globalAlpha =
-            targetCtx.globalAlpha * finalFamily.beamOpacity;
-        }
+        const offscreen = this.getOffscreen(ctx.canvas.width, ctx.canvas.height);
+        if (!offscreen) return;
+        const { canvas: tempCanvas, ctx: tempCtx } = offscreen;
+        tempCtx.setTransform(ctx.getTransform());
 
         if (p.verticalScale !== undefined && p.verticalScale !== 1.0) {
           const centerY = startY;
-          targetCtx.translate(0, centerY);
-          targetCtx.scale(1, p.verticalScale);
-          targetCtx.translate(0, -centerY);
+          tempCtx.translate(0, centerY);
+          tempCtx.scale(1, p.verticalScale);
+          tempCtx.translate(0, -centerY);
         }
 
         const midOffsetX = midAnim.offsetX || 0;
@@ -1978,7 +2182,7 @@ export class GameRenderer {
         midRight = Math.max(midLeft, midRight);
         const drawMidWidth = midRight - midLeft;
 
-        // --- LAYER 1: Draw Loop (Middle) ---
+        // --- LAYER 1: Draw Loop (Middle) onto offscreen composite ---
         const baseMidImg = this.engine.animationManager.getGifFrame(
           midAnim.imageUrl,
           p.animFrame,
@@ -1994,25 +2198,25 @@ export class GameRenderer {
               baseMidImg.height,
             );
           }
-          targetCtx.save();
-          targetCtx.globalCompositeOperation = "source-over";
+          tempCtx.save();
+          tempCtx.globalCompositeOperation = "source-over";
           const h = midImg.height || midAnim.frameHeight || 100;
 
-          targetCtx.translate(spawnX, startY);
+          tempCtx.translate(spawnX, startY);
           if (!facingRight) {
-            targetCtx.scale(-1, 1);
+            tempCtx.scale(-1, 1);
           }
           if (finalRotation) {
-            targetCtx.rotate((finalRotation * Math.PI) / 180);
+            tempCtx.rotate((finalRotation * Math.PI) / 180);
           }
           if (midOffsetX !== 0 || midOffsetY !== 0) {
-            targetCtx.translate(midOffsetX, midOffsetY);
+            tempCtx.translate(midOffsetX, midOffsetY);
           }
 
           // Always draw middle segments sequentially (Z-Index/layer order incremented back-to-front in growth direction)
           const beamWidth = Math.max(0, drawMidWidth) / scale;
-          targetCtx.translate(midLeft, (-h * scale) / 2 + 5);
-          targetCtx.scale(scale, scale);
+          tempCtx.translate(midLeft, (-h * scale) / 2 + 5);
+          tempCtx.scale(scale, scale);
 
           const segmentWidth = midImg.width || midAnim.frameWidth || h;
           const spacing = typeof midAnim.beamSpacing === "number" ? midAnim.beamSpacing : 0;
@@ -2048,7 +2252,7 @@ export class GameRenderer {
             const midW = (midImg as any).width || (midImg as any).naturalWidth || 0;
             const midH = (midImg as any).height || (midImg as any).naturalHeight || 0;
             if (dw > 0 && sw > 0 && midW > 0 && midH > 0 && h > 0) {
-              targetCtx.drawImage(
+              tempCtx.drawImage(
                 midImg as CanvasImageSource,
                 sx,
                 0,
@@ -2061,21 +2265,21 @@ export class GameRenderer {
               );
             }
           }
-          targetCtx.restore();
+          tempCtx.restore();
         }
 
-        // --- LAYER 2: Draw Start Part (Início) ---
+        // --- LAYER 2: Draw Start Part (Início) onto offscreen composite ---
         if (startAnim) {
-          targetCtx.save();
-          targetCtx.translate(spawnX, startY);
+          tempCtx.save();
+          tempCtx.translate(spawnX, startY);
           if (!facingRight) {
-            targetCtx.scale(-1, 1);
+            tempCtx.scale(-1, 1);
           }
           if (finalRotation) {
-            targetCtx.rotate((finalRotation * Math.PI) / 180);
+            tempCtx.rotate((finalRotation * Math.PI) / 180);
           }
           if (midOffsetX !== 0 || midOffsetY !== 0) {
-            targetCtx.translate(midOffsetX, midOffsetY);
+            tempCtx.translate(midOffsetX, midOffsetY);
           }
 
           const startAnimWithoutRotation = {
@@ -2084,7 +2288,7 @@ export class GameRenderer {
           };
 
           this.engine.animationManager.drawFrame(
-            targetCtx,
+            tempCtx,
             startAnimWithoutRotation,
             p.animFrame,
             0,
@@ -2096,21 +2300,21 @@ export class GameRenderer {
             true, // center align Y
             finalFamily?.color, // Consistent color tinting across preview and game
           );
-          targetCtx.restore();
+          tempCtx.restore();
         }
 
-        // --- LAYER 3: Draw End Part (Ponta) ---
+        // --- LAYER 3: Draw End Part (Ponta) onto offscreen composite ---
         if (endAnim) {
-          targetCtx.save();
-          targetCtx.translate(spawnX, startY);
+          tempCtx.save();
+          tempCtx.translate(spawnX, startY);
           if (!facingRight) {
-            targetCtx.scale(-1, 1);
+            tempCtx.scale(-1, 1);
           }
           if (finalRotation) {
-            targetCtx.rotate((finalRotation * Math.PI) / 180);
+            tempCtx.rotate((finalRotation * Math.PI) / 180);
           }
           if (midOffsetX !== 0 || midOffsetY !== 0) {
-            targetCtx.translate(midOffsetX, midOffsetY);
+            tempCtx.translate(midOffsetX, midOffsetY);
           }
 
           const endAnimWithoutRotation = {
@@ -2121,7 +2325,7 @@ export class GameRenderer {
           const drawEndX = Math.max(midLeft, maxVisibleWidth);
 
           this.engine.animationManager.drawFrame(
-            targetCtx,
+            tempCtx,
             endAnimWithoutRotation,
             p.animFrame,
             drawEndX,
@@ -2133,7 +2337,133 @@ export class GameRenderer {
             true,
             finalFamily?.color, // Consistent color tinting across preview and game
           );
-          targetCtx.restore();
+          tempCtx.restore();
+        }
+
+        // --- LAYER 4: Draw Active Energy Particles along the beam during growth and firing ---
+        const isShrinking = p.isShrinking === true;
+        const shrinkProgress = isShrinking
+          ? Math.min(1.0, Math.max(0.0, 1.0 - (p.verticalScale ?? 1.0)))
+          : 0;
+
+        const beamColorForParticles =
+          (finalFamily?.glowColor && finalFamily.glowColor.trim() !== "")
+            ? finalFamily.glowColor
+            : (finalFamily?.color && finalFamily.color !== '#ffffff' ? finalFamily.color : (p.color && p.color !== '#fff' && p.color !== '#ffffff' ? p.color : '#38bdf8'));
+
+        const beamOriginX = spawnX + (facingRight ? midOffsetX : -midOffsetX);
+        const beamCenterY = startY + midOffsetY;
+        const activeBeamLength = Math.max(10, drawMidWidth);
+        const activeBeamHeight = ((baseMidImg?.height || midAnim.frameHeight || 80) * scale);
+
+        if (!isShrinking || shrinkProgress === 0) {
+          if (this.engine.particleManager && this.engine.frameCount % 5 === 0) {
+            this.engine.particleManager.spawnBeamAuraGrowth(
+              beamOriginX,
+              beamCenterY,
+              activeBeamLength,
+              facingRight,
+              beamColorForParticles,
+              activeBeamHeight,
+              1
+            );
+          }
+        }
+
+        // --- DISPERSION EFFECT ON DESTRUCTION/SHRINKING ---
+        if (shrinkProgress > 0) {
+          if (this.engine.particleManager && this.engine.frameCount % 5 === 0) {
+            const totalLength = Math.max(10, midRight);
+            const dissolveLocalX = totalLength * (1.0 - shrinkProgress);
+            const frontX = facingRight ? beamOriginX + dissolveLocalX : beamOriginX - dissolveLocalX;
+            this.engine.particleManager.spawnBeamGenkidamaDispersion(
+              frontX,
+              beamCenterY,
+              1,
+              beamColorForParticles,
+              facingRight
+            );
+          }
+
+          const totalLength = Math.max(10, midRight);
+          const dissolveLocalX = totalLength * (1.0 - shrinkProgress);
+
+          tempCtx.save();
+          tempCtx.translate(spawnX, startY);
+          if (!facingRight) {
+            tempCtx.scale(-1, 1);
+          }
+          if (finalRotation) {
+            tempCtx.rotate((finalRotation * Math.PI) / 180);
+          }
+          if (midOffsetX !== 0 || midOffsetY !== 0) {
+            tempCtx.translate(midOffsetX, midOffsetY);
+          }
+
+          tempCtx.globalCompositeOperation = 'destination-out';
+
+          // Pixelated voxel erosion edge at dissolveLocalX
+          const ditherWidth = Math.min(60, totalLength * 0.2);
+          const ditherStep = 8;
+          tempCtx.fillStyle = 'rgba(0,0,0,1)';
+          
+          const nowTick = Math.floor(Date.now() / 40);
+          for (let py = -300; py <= 300; py += ditherStep) {
+            const rowSeed = (Math.abs(Math.floor(py)) * 17 + nowTick) % 100;
+            const rowOffset = (rowSeed / 100) * ditherWidth;
+            const biteX = dissolveLocalX - ditherWidth + rowOffset;
+            const biteSize = ditherStep + (rowSeed % 6);
+            tempCtx.fillRect(biteX, py, biteSize, biteSize);
+          }
+
+          // Soft dissolution fade edge behind the pixel bite zone
+          const fadeWidth = Math.min(40, totalLength * 0.12);
+          const maskGrad = tempCtx.createLinearGradient(dissolveLocalX - ditherWidth - fadeWidth, 0, dissolveLocalX - ditherWidth, 0);
+          maskGrad.addColorStop(0, 'rgba(0,0,0,0)');
+          maskGrad.addColorStop(1, 'rgba(0,0,0,1)');
+
+          tempCtx.fillStyle = maskGrad;
+          tempCtx.fillRect(dissolveLocalX - ditherWidth - fadeWidth, -500, fadeWidth, 1000);
+
+          // Erase the beam texture from dissolveLocalX - ditherWidth onwards (from tip back to origin)
+          tempCtx.fillStyle = 'rgba(0,0,0,1)';
+          tempCtx.fillRect(dissolveLocalX - ditherWidth, -500, totalLength - dissolveLocalX + ditherWidth + 500, 1000);
+
+          tempCtx.restore();
+        }
+
+        // --- FINAL COMPOSITE PASS: Draw merged offscreen beam onto main canvas with glow shadow & filters ---
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+        if (filters.length > 0) {
+          ctx.filter = filters.join(" ");
+        }
+
+        const glowQual = this.getGlowQuality();
+        if (glowQual !== 'DISABLED') {
+          GlowOptimizer.getInstance().registerGlowObject();
+          const isUltra = glowQual === 'ULTRA';
+          let shadowGlowColor =
+            (finalFamily.glowColor && finalFamily.glowColor.trim() !== "")
+              ? finalFamily.glowColor
+              : (finalFamily.color && finalFamily.color !== '#ffffff' ? finalFamily.color : '#3b82f6');
+          shadowGlowColor = this.engine.animationManager.getTransformedColor(shadowGlowColor, beamFiltersObj);
+          ctx.shadowColor = shadowGlowColor;
+          const defaultBlur = isUltra ? 28 : 14;
+          const baseRadius = finalFamily.glowRadius ?? finalFamily.glowBlur ?? defaultBlur;
+          const intensity = finalFamily.glowIntensity ?? 1.0;
+          const reqBlur = Math.round(baseRadius * intensity);
+          const beamGlowBlur = GlowOptimizer.getInstance().getOptimizedBlur(reqBlur, glowQual);
+          ctx.shadowBlur = beamGlowBlur;
+        }
+
+        if (finalFamily.beamOpacity !== undefined) {
+          ctx.globalAlpha = ctx.globalAlpha * finalFamily.beamOpacity;
+        }
+
+        if (tempCanvas && tempCanvas.width > 0 && tempCanvas.height > 0) {
+          ctx.drawImage(tempCanvas, 0, 0);
         }
 
         ctx.restore();
@@ -2148,6 +2478,24 @@ export class GameRenderer {
       );
       if (img) {
         ctx.save();
+        const glowQual = this.getGlowQuality();
+        const projGlowColor =
+          (p as any).glowColor ||
+          ((p as any).color && (p as any).color !== "#ffffff" ? (p as any).color : undefined) ||
+          '#f59e0b';
+
+        if (glowQual !== 'DISABLED') {
+          GlowOptimizer.getInstance().registerGlowObject();
+          const isUltra = glowQual === 'ULTRA';
+          ctx.shadowColor = projGlowColor;
+          const defaultBlur = isUltra ? 26 : 12;
+          const baseRadius = (p as any).glowRadius ?? (p as any).glowBlur ?? defaultBlur;
+          const intensity = (p as any).glowIntensity ?? 1.0;
+          const reqBlur = Math.round(baseRadius * intensity);
+          const projGlowBlur = GlowOptimizer.getInstance().getOptimizedBlur(reqBlur, glowQual);
+          ctx.shadowBlur = projGlowBlur;
+        }
+
         const facingRight =
           p.initialFacingRight !== undefined ? p.initialFacingRight : p.vx > 0;
         const animOffsetX = anim.offsetX || 0;
@@ -2180,6 +2528,17 @@ export class GameRenderer {
           );
         }
         ctx.restore();
+
+        // Draw aura-style energy particles around custom projectile
+        this.engine.animationManager.drawEnergyParticles(ctx, {
+          x: cx,
+          y: cy,
+          width: imgW * scale,
+          height: imgH * scale,
+          glowColor: projGlowColor,
+          count: 14,
+          facingRight: facingRight
+        });
         return;
       }
       return; // Return immediately while the high fidelity character custom animation loads
@@ -2285,6 +2644,26 @@ export class GameRenderer {
             ctx.globalAlpha = opacity;
           }
 
+          const glowQual = this.getGlowQuality();
+          if (glowQual !== 'DISABLED') {
+            GlowOptimizer.getInstance().registerGlowObject();
+            const isUltra = glowQual === 'ULTRA';
+            const projGlowColor =
+              (finalFamily?.glowColor && finalFamily.glowColor.trim() !== "")
+                ? finalFamily.glowColor
+                : (finalFamily?.color ? finalFamily.color : undefined) ||
+                  (p as any).glowColor ||
+                  '#ffaa00';
+            const defaultBlur = isUltra ? 28 : 16;
+            const baseRadius = finalFamily?.glowRadius ?? finalFamily?.glowBlur ?? (p as any).glowRadius ?? defaultBlur;
+            const intensity = finalFamily?.glowIntensity ?? (p as any).glowIntensity ?? 1.0;
+            const reqBlur = Math.max(12, Math.round(baseRadius * intensity));
+            const projGlowBlur = GlowOptimizer.getInstance().getOptimizedBlur(reqBlur, glowQual);
+
+            ctx.shadowColor = projGlowColor;
+            ctx.shadowBlur = projGlowBlur;
+          }
+
           const facingRight = p.initialFacingRight ?? p.vx > 0;
           const animOffsetX = anim.offsetX || 0;
           const animOffsetY = anim.offsetY || 0;
@@ -2334,6 +2713,24 @@ export class GameRenderer {
             );
           }
           ctx.restore();
+
+          const projGlowColor =
+            (finalFamily?.glowColor && finalFamily.glowColor.trim() !== "")
+              ? finalFamily.glowColor
+              : (finalFamily?.color ? finalFamily.color : undefined) ||
+                (p as any).glowColor ||
+                '#ffaa00';
+
+          this.engine.animationManager.drawEnergyParticles(ctx, {
+            x: cx,
+            y: cy,
+            width: imgW * scale,
+            height: imgH * scale,
+            glowColor: projGlowColor,
+            count: 16,
+            facingRight: facingRight,
+            rotation: p.rotation
+          });
           return;
         }
         return; // Return immediately while the high fidelity database animation frame loads

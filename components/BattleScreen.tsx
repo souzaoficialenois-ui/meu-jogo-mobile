@@ -11,12 +11,18 @@ import { VirtualControls } from "./VirtualControls";
 import { GameState, SceneName, IntroPhase, DummyMode, CpuAction, CounterAttackType } from "../types";
 import { WIN_REWARD, MAX_GUARD, MAX_KI, MAX_HP, RESOURCE_SPRITES } from "../constants";
 import { motion, AnimatePresence } from "framer-motion";
-import { Pause, Zap, Trophy, RotateCcw, LogOut, Settings, Activity, ChevronDown, Check } from "lucide-react";
+import { Pause, Zap, Trophy, RotateCcw, LogOut, Settings, Activity, ChevronDown, Check, Eye } from "lucide-react";
 import { AudioManager } from "../services/AudioManager";
 import { VoiceQueue } from "../src/engine/dialogue/VoiceQueue";
 import { DialogueSubtitle } from "../src/engine/dialogue/types";
 import { LocalMultiplayerManager } from "../services/LocalMultiplayerManager";
 import { EventSystem } from "../services/EventSystem";
+import { NetworkManager } from "../services/NetworkManager";
+import { CpuStreakManager } from "../services/CpuStreakManager";
+import { BattleResultOverlay } from "./BattleResultOverlay";
+import { EmoteRadialMenu } from "./emotes/EmoteRadialMenu";
+import { EmoteDisplayBubble } from "./emotes/EmoteDisplayBubble";
+import { EmoteData } from "./emotes/EmoteTypes";
 
 export const BattleScreen: React.FC = () => {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,6 +34,9 @@ export const BattleScreen: React.FC = () => {
     createGameSession,
     startLoading,
     addCoins,
+    addGems,
+    unlockCharacter,
+    updateMatchStats,
     notifyMissionProgress,
     handleBattleEnd,
     handleSurvivalEnd,
@@ -43,12 +52,32 @@ export const BattleScreen: React.FC = () => {
   const isPt = settings?.language === 'pt';
 
   const [coinsAwarded, setCoinsAwarded] = useState(false);
+  const [earnedCoins, setEarnedCoins] = useState(0);
+  const [earnedGems, setEarnedGems] = useState(0);
+  const [unlockedCharName, setUnlockedCharName] = useState<string | undefined>(undefined);
   const [lastP1Idx, setLastP1Idx] = useState(0);
   const [lastP2Idx, setLastP2Idx] = useState(0);
   const [showP1Tag, setShowP1Tag] = useState(false);
   const [showP2Tag, setShowP2Tag] = useState(false);
   const [isExitingToPause, setIsExitingToPause] = useState(false);
   const [subtitles, setSubtitles] = useState<DialogueSubtitle[]>([]);
+  const [activeEmotes, setActiveEmotes] = useState<{
+    p1?: { emote: EmoteData; playerName: string } | null;
+    p2?: { emote: EmoteData; playerName: string } | null;
+  }>({});
+
+  const triggerEmote = useCallback((side: 'p1' | 'p2', emote: EmoteData, name: string) => {
+    setActiveEmotes(prev => ({
+      ...prev,
+      [side]: { emote, playerName: name }
+    }));
+    setTimeout(() => {
+      setActiveEmotes(prev => ({
+        ...prev,
+        [side]: null
+      }));
+    }, 3500);
+  }, []);
 
   useEffect(() => {
     const unsub = VoiceQueue.getInstance().subscribe((subs) => {
@@ -95,6 +124,39 @@ export const BattleScreen: React.FC = () => {
     p1ActiveIdx: 0,
     p2ActiveIdx: 0,
   });
+
+  const isOnlineMatch = gameState.gameMode === "ONLINE";
+
+  const handleSelectEmote = useCallback((emote: EmoteData) => {
+    const isHost = NetworkManager.getInstance().isHost;
+    const side = isHost ? 'p1' : 'p2';
+    const myName = side === 'p1' 
+      ? (gameState.p1Stats.name || t('menu_guest') || "P1") 
+      : (gameState.p2Stats.name || t('menu_opponent') || "P2");
+    
+    triggerEmote(side, emote, myName);
+
+    if (isOnlineMatch) {
+      NetworkManager.getInstance().sendEmote({
+        emote,
+        side,
+        playerName: myName
+      });
+    }
+  }, [gameState.p1Stats.name, gameState.p2Stats.name, isOnlineMatch, t, triggerEmote]);
+
+  useEffect(() => {
+    if (!isOnlineMatch) return;
+    const net = NetworkManager.getInstance();
+    net.onEmoteReceived = (data: any) => {
+      if (data?.emote) {
+        const isHost = net.isHost;
+        const remoteSide = data.side || (isHost ? 'p2' : 'p1');
+        const remoteName = data.playerName || (remoteSide === 'p1' ? (gameState.p1Stats.name || "P1") : (gameState.p2Stats.name || "P2"));
+        triggerEmote(remoteSide, data.emote, remoteName);
+      }
+    };
+  }, [isOnlineMatch, gameState.p1Stats.name, gameState.p2Stats.name, triggerEmote]);
 
   // Training Mode configuration and synchronization
   const isTraining = gameEngine?.isTraining || gameState?.gameMode === "TRAINING";
@@ -235,23 +297,114 @@ export const BattleScreen: React.FC = () => {
   useEffect(() => {
     if (gameState.gameOver && gameState.winner !== null && !coinsAwarded) {
       setCoinsAwarded(true);
-      setTimeout(() => {
-        setMatchResult(gameState);
-        if (gameState.gameMode === "SURVIVAL") {
-          handleSurvivalEnd(gameState);
-        } else if (gameState.gameMode === "SUMMON") {
+      setMatchResult(gameState);
+
+      notifyMissionProgress("BATTLE_PLAY", 1);
+      if (gameState.matchStats?.p1?.damageDealt) {
+        notifyMissionProgress("DAMAGE_DEALT", Math.floor(gameState.matchStats.p1.damageDealt));
+      }
+
+      if (gameState.gameMode === "SUMMON") {
+        setTimeout(() => {
           changeScene(SceneName.SUMMON);
+        }, 2000);
+        return;
+      }
+
+      const isOnline = gameState.gameMode === "ONLINE";
+      const isHost = NetworkManager.getInstance().isHost;
+      const isWinner = isOnline
+        ? (gameState.winner === 1 && isHost) || (gameState.winner === 2 && !isHost)
+        : gameState.winner === 1;
+
+      if (isOnline && updateMatchStats) {
+        updateMatchStats(isWinner);
+      }
+
+      if (!isOnline && gameState.gameMode !== "TRAINING") {
+        if (isWinner) {
+          const newStreak = CpuStreakManager.recordWin();
+          if (gameEngine) {
+            gameEngine.setCpuWinStreak(newStreak);
+          }
         } else {
-          changeScene(SceneName.RESULTS);
+          CpuStreakManager.recordLoss();
+          if (gameEngine) {
+            gameEngine.setCpuWinStreak(0);
+          }
         }
-      }, 2000);
+      }
+
+      if (isWinner) {
+        if (gameState.gameMode === "STORY") {
+          const activeChId = localStorage.getItem("dd2d_active_story_chapter") || "story_chapter_1";
+          let completedList: string[] = [];
+          const saved = localStorage.getItem("dd2d_completed_stories");
+          if (saved) {
+            try { completedList = JSON.parse(saved); } catch (_) {}
+          }
+
+          const rewardsMap: Record<string, { coins: number; gems: number; unlockId?: string; label: string }> = {
+            story_chapter_1: { coins: 500, gems: 50, label: "Saga Saiyajin" },
+            story_chapter_2: { coins: 750, gems: 80, label: "Saga Namekusei" },
+            story_chapter_3: { coins: 1000, gems: 100, label: "Saga Futuro" },
+            story_chapter_4: { coins: 1500, gems: 150, label: "Saga Divina" },
+            story_chapter_5: { coins: 2500, gems: 250, unlockId: "majin_buu_gohan", label: "Fusão Suprema" }
+          };
+
+          const chRewards = rewardsMap[activeChId] || { coins: 500, gems: 50, label: "Saga Histórica" };
+          const isFirstTime = !completedList.includes(activeChId);
+
+          if (isFirstTime) {
+            completedList.push(activeChId);
+            localStorage.setItem("dd2d_completed_stories", JSON.stringify(completedList));
+            addCoins(chRewards.coins);
+            if (addGems) addGems(chRewards.gems);
+            setEarnedCoins(chRewards.coins);
+            setEarnedGems(chRewards.gems);
+
+            if (chRewards.unlockId && unlockCharacter) {
+              try {
+                const unlockRes = unlockCharacter(chRewards.unlockId);
+                if (unlockRes && unlockRes.name) {
+                  setUnlockedCharName(unlockRes.name);
+                } else {
+                  setUnlockedCharName(chRewards.unlockId.toUpperCase());
+                }
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          } else {
+            const repCoins = Math.floor(chRewards.coins * 0.1);
+            addCoins(repCoins);
+            setEarnedCoins(repCoins);
+          }
+        } else if (!activeTournament && gameState.gameMode !== "TRAINING") {
+          const reward = gameState.gameMode === "BOSS" ? WIN_REWARD * 10 : WIN_REWARD;
+          addCoins(reward);
+          setEarnedCoins(reward);
+        }
+
+        notifyMissionProgress("BATTLE_WIN", 1);
+        AudioManager.getInstance().playSFX("victory");
+      } else {
+        AudioManager.getInstance().playSFX("defeat");
+      }
     }
   }, [
     gameState.gameOver,
     gameState.winner,
+    gameState.gameMode,
+    gameState.matchStats,
     coinsAwarded,
     setMatchResult,
-    handleSurvivalEnd,
+    notifyMissionProgress,
+    updateMatchStats,
+    addCoins,
+    addGems,
+    unlockCharacter,
+    activeTournament,
     changeScene,
   ]);
 
@@ -285,47 +438,40 @@ export const BattleScreen: React.FC = () => {
       dragonRush: "KeyR"
     };
 
-    const keysP2 = {
+    const keysP2 = settings.p2Keybindings || {
       left: "ArrowLeft",
       right: "ArrowRight",
       jump: "ArrowUp",
-      light: "KeyO",
-      medium: "KeyP",
-      heavy: "BracketLeft",
-      special: "BracketRight",
       block: "ArrowDown",
-      dash: "",
-      charge: "Backslash",
-      ultimate: "Enter",
-      tag: "Slash",
-      assist1: "Period",
-      assist2: "Comma",
-      vanish: "KeyM",
-      transform: "KeyN",
-      dragonRush: "KeyH"
-    };
-
-    const keysP2Numpad = {
-      left: "Numpad4",
-      right: "Numpad6",
-      jump: "Numpad8",
+      dash: "ShiftRight",
       light: "Numpad1",
       medium: "Numpad2",
       heavy: "Numpad3",
       special: "Numpad5",
-      block: "Numpad0",
-      dash: "",
       charge: "Numpad7",
       ultimate: "Numpad9",
-      tag: "NumpadDivide",
-      assist1: "NumpadMultiply",
-      assist2: "NumpadSubtract",
+      tag: "Numpad4",
+      assist1: "NumpadDivide",
+      assist2: "NumpadMultiply",
       vanish: "NumpadAdd",
       transform: "NumpadEnter",
       dragonRush: "Numpad0"
     };
 
     const handleKey = (e: KeyboardEvent, isDown: boolean) => {
+      const active = document.activeElement as HTMLElement | null;
+      const target = e.target as HTMLElement | null;
+      const isInput = (el: HTMLElement | null) => !!(el && (
+        el.tagName === 'INPUT' ||
+        el.tagName === 'TEXTAREA' ||
+        el.tagName === 'SELECT' ||
+        el.isContentEditable
+      ));
+
+      if (isInput(active) || isInput(target)) {
+        return;
+      }
+
       if (!gameEngine) return;
       if (matchMode === "CPU_VS_CPU" && e.code !== "Escape") return;
       const im = gameEngine.inputManager;
@@ -333,7 +479,7 @@ export const BattleScreen: React.FC = () => {
       let allowP1Keyboard = true;
       let allowP2Keyboard = true;
 
-      if (matchMode === "LOCAL_VS") {
+      if ((matchMode as string) === "LOCAL_VS") {
         const mapping = LocalMultiplayerManager.getInstance().getDeviceMapping();
         if (mapping) {
           allowP1Keyboard = mapping.p1Device === "keyboard";
@@ -356,17 +502,17 @@ export const BattleScreen: React.FC = () => {
         } else if (e.code === keys.heavy) {
           im.setInputForPlayer(1, "heavy", isDown);
         } else if (e.code === keys.lp) {
-          im.setInputForPlayer(1, "lp", isDown);
+          im.setInputForPlayer(1, "lp" as any, isDown);
         } else if (e.code === keys.mp) {
-          im.setInputForPlayer(1, "mp", isDown);
+          im.setInputForPlayer(1, "mp" as any, isDown);
         } else if (e.code === keys.sp) {
-          im.setInputForPlayer(1, "sp", isDown);
+          im.setInputForPlayer(1, "sp" as any, isDown);
         } else if (e.code === keys.lk) {
-          im.setInputForPlayer(1, "lk", isDown);
+          im.setInputForPlayer(1, "lk" as any, isDown);
         } else if (e.code === keys.mk) {
-          im.setInputForPlayer(1, "mk", isDown);
+          im.setInputForPlayer(1, "mk" as any, isDown);
         } else if (e.code === keys.sk) {
-          im.setInputForPlayer(1, "sk", isDown);
+          im.setInputForPlayer(1, "sk" as any, isDown);
         } else if (e.code === keys.special) {
           im.setInputForPlayer(1, "special", isDown);
         } else if (e.code === keys.block) {
@@ -392,49 +538,39 @@ export const BattleScreen: React.FC = () => {
 
       // Player 2 mappings
       if (allowP2Keyboard) {
-        if (e.code === keysP2.left || e.code === keysP2Numpad.left) {
+        if (keysP2.left && e.code === keysP2.left) {
           im.setInputForPlayer(2, "left", isDown);
-        } else if (e.code === keysP2.right || e.code === keysP2Numpad.right) {
+        } else if (keysP2.right && e.code === keysP2.right) {
           im.setInputForPlayer(2, "right", isDown);
-        } else if (e.code === keysP2.jump || e.code === keysP2Numpad.jump) {
+        } else if (keysP2.jump && e.code === keysP2.jump) {
           im.setInputForPlayer(2, "jump", isDown);
-        } else if (e.code === keysP2.light || e.code === keysP2Numpad.light) {
+        } else if (keysP2.light && e.code === keysP2.light) {
           im.setInputForPlayer(2, "light", isDown);
-        } else if (e.code === keysP2.medium || e.code === keysP2Numpad.medium) {
+        } else if (keysP2.medium && e.code === keysP2.medium) {
           im.setInputForPlayer(2, "medium", isDown);
-        } else if (e.code === keysP2.heavy || e.code === keysP2Numpad.heavy) {
+        } else if (keysP2.heavy && e.code === keysP2.heavy) {
           im.setInputForPlayer(2, "heavy", isDown);
-        } else if (e.code === "Numpad1") {
-          im.setInputForPlayer(2, "lp", isDown);
-        } else if (e.code === "Numpad2") {
-          im.setInputForPlayer(2, "mp", isDown);
-        } else if (e.code === "Numpad3") {
-          im.setInputForPlayer(2, "sp", isDown);
-        } else if (e.code === "Numpad0") {
-          im.setInputForPlayer(2, "lk", isDown);
-        } else if (e.code === "NumpadDecimal") {
-          im.setInputForPlayer(2, "mk", isDown);
-        } else if (e.code === "NumpadEnter") {
-          im.setInputForPlayer(2, "sk", isDown);
-        } else if (e.code === keysP2.special || e.code === keysP2Numpad.special) {
+        } else if (keysP2.special && e.code === keysP2.special) {
           im.setInputForPlayer(2, "special", isDown);
-        } else if (e.code === keysP2.block || e.code === keysP2Numpad.block) {
+        } else if (keysP2.block && e.code === keysP2.block) {
           im.setInputForPlayer(2, "block", isDown);
-        } else if (e.code === keysP2.charge || e.code === keysP2Numpad.charge) {
+        } else if (keysP2.dash && e.code === keysP2.dash) {
+          im.setInputForPlayer(2, "dash", isDown);
+        } else if (keysP2.charge && e.code === keysP2.charge) {
           im.setInputForPlayer(2, "charge", isDown);
-        } else if (e.code === keysP2.ultimate || e.code === keysP2Numpad.ultimate) {
+        } else if (keysP2.ultimate && e.code === keysP2.ultimate) {
           im.setInputForPlayer(2, "ultimate", isDown);
-        } else if (e.code === keysP2.tag || e.code === keysP2Numpad.tag) {
+        } else if (keysP2.tag && e.code === keysP2.tag) {
           im.setInputForPlayer(2, "tag", isDown);
-        } else if (e.code === keysP2.assist1 || e.code === keysP2Numpad.assist1) {
+        } else if (keysP2.assist1 && e.code === keysP2.assist1) {
           im.setInputForPlayer(2, "assist1", isDown);
-        } else if (e.code === keysP2.assist2 || e.code === keysP2Numpad.assist2) {
+        } else if (keysP2.assist2 && e.code === keysP2.assist2) {
           im.setInputForPlayer(2, "assist2", isDown);
-        } else if (e.code === keysP2.vanish || e.code === keysP2Numpad.vanish) {
+        } else if (keysP2.vanish && e.code === keysP2.vanish) {
           im.setInputForPlayer(2, "vanish", isDown);
-        } else if (e.code === keysP2.transform || e.code === keysP2Numpad.transform) {
+        } else if (keysP2.transform && e.code === keysP2.transform) {
           im.setInputForPlayer(2, "transform", isDown);
-        } else if (e.code === keysP2.dragonRush || e.code === keysP2Numpad.dragonRush) {
+        } else if (keysP2.dragonRush && e.code === keysP2.dragonRush) {
           im.setInputForPlayer(2, "dragonRush", isDown);
         }
       }
@@ -535,7 +671,7 @@ export const BattleScreen: React.FC = () => {
               wave={gameState.wave}
               gameMode={gameState.gameMode}
               onTimerClick={handleTimerClick}
-              uiVisible={!isExitingToPause && !gameState.koSequenceActive && !gameState.isKOSwapActive}
+              uiVisible={!isExitingToPause && !gameState.koSequenceActive && !gameState.isKOSwapActive && (!gameState.battleEndPhase || gameState.battleEndPhase === 'NONE')}
             />
           )}
         </div>
@@ -551,9 +687,9 @@ export const BattleScreen: React.FC = () => {
         {shouldShowHUD && (
           <motion.div
             initial={{ opacity: 0 }}
-            animate={{ opacity: (gameState.koSequenceActive || gameState.isKOSwapActive) ? 0 : 1 }}
+            animate={{ opacity: (gameState.koSequenceActive || gameState.isKOSwapActive || (gameState.battleEndPhase && gameState.battleEndPhase !== 'NONE')) ? 0 : 1 }}
             exit={{ opacity: 0 }}
-            className={`absolute inset-0 z-40 pointer-events-none ${(gameState.koSequenceActive || gameState.isKOSwapActive) ? "hidden" : ""}`}
+            className={`absolute inset-0 z-40 pointer-events-none ${(gameState.koSequenceActive || gameState.isKOSwapActive || (gameState.battleEndPhase && gameState.battleEndPhase !== 'NONE')) ? "hidden" : ""}`}
           >
             {/* Beam Clash Progress Bar */}
             <AnimatePresence>
@@ -693,10 +829,40 @@ export const BattleScreen: React.FC = () => {
                   p1DragonRushCooldown={gameState.p1DragonRushCooldown}
                   assistCooldown={gameState.p1Stats.assistCooldown}
                   p1ActiveId={gameEngine?.player1?.data?.id}
-                  hidden={gameState.isUlting || gameState.koSequenceActive || gameState.isKOSwapActive}
+                  hidden={gameState.isUlting || gameState.koSequenceActive || gameState.isKOSwapActive || (gameState.battleEndPhase !== undefined && gameState.battleEndPhase !== 'NONE')}
                 />
               )}
             </div>
+
+            {/* Spectator Indicator */}
+            {NetworkManager.getInstance().isSpectator && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[110] bg-purple-900/80 border border-purple-500/50 backdrop-blur-md px-5 py-2 rounded-full flex items-center gap-2.5 shadow-2xl pointer-events-none">
+                <Eye size={18} className="text-purple-300 animate-pulse" />
+                <span className="text-xs font-black italic uppercase tracking-[0.2em] text-purple-200">TRANSMISSÃO AO VIVO (ESPECTADOR)</span>
+              </div>
+            )}
+
+            {/* Emote Overlay & Radial Menu - ONLINE MATCHES ONLY */}
+            {isOnlineMatch && (
+              <div className="pointer-events-none absolute inset-0 z-[100]">
+                <EmoteDisplayBubble
+                  emote={activeEmotes.p1?.emote || null}
+                  playerName={activeEmotes.p1?.playerName || gameState.p1Stats.name || "P1"}
+                  position="top-left"
+                />
+                <EmoteDisplayBubble
+                  emote={activeEmotes.p2?.emote || null}
+                  playerName={activeEmotes.p2?.playerName || gameState.p2Stats.name || "P2"}
+                  position="top-right"
+                />
+                <div className="pointer-events-auto">
+                  <EmoteRadialMenu
+                    onSelectEmote={handleSelectEmote}
+                    positionClassName="bottom-24 right-8"
+                  />
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -903,6 +1069,34 @@ export const BattleScreen: React.FC = () => {
         )}
       </AnimatePresence>
 
+      {/* Battle End Sequence Result Banner Overlay Component */}
+      <BattleResultOverlay
+        isVisible={gameState.battleEndPhase === 'RESULT_SHOW' || gameState.battleEndPhase === 'FINISHED' || gameState.gameOver}
+        resultText={gameState.battleEndResultText || (gameState.winner === 1 ? (isPt ? 'VOCÊ VENCEU!' : 'YOU WIN!') : (isPt ? 'VOCÊ PERDEU!' : 'YOU LOSE!'))}
+        resultType={gameState.battleEndResultType || (gameState.winner === 1 ? 'WIN' : 'LOSE')}
+        earnedCoins={earnedCoins}
+        earnedGems={earnedGems}
+        unlockedCharName={unlockedCharName}
+        gameMode={gameState.gameMode}
+        isSurvivalNext={gameState.gameMode === 'SURVIVAL' && gameState.winner === 1}
+        survivalWave={(gameEngine as any)?.survivalWave || 1}
+        isTournament={!!activeTournament}
+        onRematch={handleRematch}
+        onNextMatch={() => {
+          if (gameState.gameMode === 'SURVIVAL') {
+            handleSurvivalEnd(gameState);
+          } else if (activeTournament) {
+            handleContinueTournament();
+          } else if (gameState.gameMode === 'STORY') {
+            destroyGameSession();
+            changeScene(SceneName.STORY_MODE);
+          }
+        }}
+        onCharacterSelect={handleCharacterSelect}
+        onMainMenu={handleModeMenu}
+        isPt={isPt}
+      />
+
 
 
       {/* Dynamic Battle Dialog Subtitles */}
@@ -926,7 +1120,7 @@ export const BattleScreen: React.FC = () => {
               nameHex = "#4ade80"; // green-400
             }
 
-            const characterDisplayName = activeSub.characterName || activeSub.speakerName || activeSub.characterId || "";
+            const characterDisplayName = activeSub.characterName || (activeSub as any).speakerName || activeSub.characterId || "";
 
             // Normalização das aspas
             let cleanedText = activeSub.text.trim();
@@ -981,361 +1175,6 @@ export const BattleScreen: React.FC = () => {
           })()}
         </AnimatePresence>
       </div>
-
-      {/* Training Options Panel */}
-      {isTraining && (
-        <div className="absolute top-24 md:top-28 right-4 z-[60] flex flex-col items-end gap-2 pointer-events-auto">
-          <div className="flex gap-2 items-center">
-            {/* Quick Reset Position Button */}
-            <button
-              onClick={handleResetPositions}
-              className="w-12 h-12 flex items-center justify-center rounded-lg bg-orange-600/90 hover:bg-orange-500 border border-orange-500/30 text-white shadow-lg active:scale-95 transition-all cursor-pointer"
-              title={t('training_reset_pos') || "Recomeçar Posições"}
-            >
-              <RotateCcw className="w-5 h-5" />
-            </button>
-
-            {/* Toggle Settings Button */}
-            <button
-               onClick={() => {
-                 setShowTrainingMenu(!showTrainingMenu);
-                 AudioManager.getInstance().playSFX("click");
-               }}
-               className={`h-12 px-4 flex items-center gap-2 rounded-lg border shadow-lg active:scale-95 transition-all cursor-pointer ${
-                 showTrainingMenu
-                   ? "bg-amber-500 text-black border-amber-400 font-bold"
-                   : "bg-slate-900/90 text-white border-white/10 hover:border-amber-500/50"
-               }`}
-            >
-              <Settings className={`w-5 h-5 ${showTrainingMenu ? "animate-spin" : ""}`} />
-              <span className="text-xs uppercase font-black tracking-wider">
-                {showTrainingMenu ? (t('menu_close') || "Fechar") : (t('training_options') || "Opções de Treino")}
-              </span>
-            </button>
-          </div>
-
-          <AnimatePresence>
-            {showTrainingMenu && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                className="bg-slate-950/95 backdrop-blur-md border border-amber-500/30 rounded-xl p-4 w-72 shadow-2xl flex flex-col gap-4 text-stone-200 mt-1"
-              >
-                {/* Header */}
-                <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-amber-400 animate-pulse" />
-                    <h3 className="text-xs font-black uppercase tracking-widest text-amber-400">
-                      {t('training_config') || 'Configurações de Treino'}
-                    </h3>
-                  </div>
-                </div>
-
-                {/* Switch list */}
-                <div className="flex flex-col gap-3">
-                  {/* Infinite HP */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300">{t('training_infinite_hp') || 'Vida Infinita (HP)'}</span>
-                    <button
-                      onClick={handleToggleHp}
-                      className={`w-12 h-6 rounded-full relative transition-colors cursor-pointer ${
-                        infiniteHp ? "bg-amber-500" : "bg-slate-800"
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                          infiniteHp ? "translate-x-6" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Infinite Ki */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300">Ki Infinito (KI)</span>
-                    <button
-                      onClick={handleToggleKi}
-                      className={`w-12 h-6 rounded-full relative transition-colors cursor-pointer ${
-                        infiniteKi ? "bg-amber-500" : "bg-slate-800"
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                          infiniteKi ? "translate-x-6" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Show Hitboxes */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300">Exibir Hitboxes</span>
-                    <button
-                      onClick={handleToggleHitboxes}
-                      className={`w-12 h-6 rounded-full relative transition-colors cursor-pointer ${
-                        showHitboxes ? "bg-amber-500" : "bg-slate-800"
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                          showHitboxes ? "translate-x-6" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Dummy Action Dropdown */}
-                  <div className="flex flex-col gap-1 border-t border-white/5 pt-2 relative">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                      Comportamento do Dummy
-                    </span>
-                    
-                    <button
-                      onClick={() => {
-                        setIsDummyDropdownOpen(!isDummyDropdownOpen);
-                        setIsCpuDropdownOpen(false);
-                        setIsCounterDropdownOpen(false);
-                        AudioManager.getInstance().playSFX("click");
-                      }}
-                      className="flex items-center justify-between w-full bg-slate-900 border border-white/10 hover:border-amber-500/50 py-2 px-3 rounded-lg text-xs text-stone-200 transition-all cursor-pointer mt-1"
-                    >
-                      <span className="font-semibold text-[11px]">
-                        {dummyMode === "IDLE"
-                          ? "Parado (IDLE)"
-                          : dummyMode === "BLOCK"
-                          ? "Defesa (BLOCK)"
-                          : dummyMode === "JUMP"
-                          ? "Pulo (JUMP)"
-                          : dummyMode === "CROUCH"
-                          ? "Agachar (CROUCH)"
-                          : "Repetir (MIRROR)"}
-                      </span>
-                      <ChevronDown className={`w-4 h-4 text-amber-500 transition-transform duration-200 ${isDummyDropdownOpen ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    <AnimatePresence>
-                      {isDummyDropdownOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="overflow-hidden flex flex-col gap-0.5 mt-1 bg-slate-900 border border-white/5 rounded-lg p-1 z-50 shadow-xl"
-                        >
-                          {(Object.keys(DummyMode) as Array<keyof typeof DummyMode>).map((m) => {
-                            const isSelected = dummyMode === m;
-                            return (
-                              <button
-                                key={m}
-                                onClick={() => {
-                                  if (gameEngine) {
-                                    gameEngine.setDummyMode(DummyMode[m]);
-                                    setDummyModeState(DummyMode[m]);
-                                    setIsDummyDropdownOpen(false);
-                                    AudioManager.getInstance().playSFX("click");
-                                  }
-                                }}
-                                className={`flex items-center justify-between w-full py-1.5 px-2 rounded text-left text-[11px] transition-all cursor-pointer ${
-                                  isSelected
-                                    ? "bg-amber-500 text-black font-bold"
-                                    : "text-slate-350 hover:bg-white/5 hover:text-white"
-                                }`}
-                              >
-                                <span>
-                                  {m === "IDLE"
-                                    ? "Parado (IDLE)"
-                                    : m === "BLOCK"
-                                    ? "Defesa (BLOCK)"
-                                    : m === "JUMP"
-                                    ? "Pulo (JUMP)"
-                                    : m === "CROUCH"
-                                    ? "Agachar (CROUCH)"
-                                    : "Repetir (MIRROR)"}
-                                </span>
-                                {isSelected && <Check className="w-3.5 h-3.5" />}
-                              </button>
-                            );
-                          })}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Ações da CPU */}
-                  <div className="flex flex-col gap-1 border-t border-white/5 pt-2 relative">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                      Ações da CPU (IA)
-                    </span>
-                    
-                    <button
-                      onClick={() => {
-                        setIsCpuDropdownOpen(!isCpuDropdownOpen);
-                        setIsDummyDropdownOpen(false);
-                        setIsCounterDropdownOpen(false);
-                        AudioManager.getInstance().playSFX("click");
-                      }}
-                      className="flex items-center justify-between w-full bg-slate-900 border border-white/10 hover:border-amber-500/50 py-2 px-3 rounded-lg text-xs text-stone-200 transition-all cursor-pointer mt-1"
-                    >
-                      <span className="font-semibold text-[11px]">
-                        {cpuAction === "OFF"
-                          ? "Desativado (Normal)"
-                          : cpuAction === "DEFEND_ALWAYS"
-                          ? "Defender Sempre"
-                          : cpuAction === "COUNTER_ATTACK"
-                          ? "Contra-atacar"
-                          : cpuAction === "REFLECT_BEAM"
-                          ? "Refletir Beam"
-                          : "IA Completa"}
-                      </span>
-                      <ChevronDown className={`w-4 h-4 text-amber-500 transition-transform duration-200 ${isCpuDropdownOpen ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    <AnimatePresence>
-                      {isCpuDropdownOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="overflow-hidden flex flex-col gap-0.5 mt-1 bg-slate-900 border border-white/5 rounded-lg p-1 z-50 shadow-xl"
-                        >
-                          {(Object.keys(CpuAction) as Array<keyof typeof CpuAction>).map((act) => {
-                            const isSelected = cpuAction === act;
-                            return (
-                              <button
-                                key={act}
-                                onClick={() => {
-                                  if (gameEngine) {
-                                    gameEngine.setCpuAction(CpuAction[act]);
-                                    setCpuActionState(CpuAction[act]);
-                                    setIsCpuDropdownOpen(false);
-                                    AudioManager.getInstance().playSFX("click");
-                                  }
-                                }}
-                                className={`flex items-center justify-between w-full py-1.5 px-2 rounded text-left text-[11px] transition-all cursor-pointer ${
-                                  isSelected
-                                    ? "bg-amber-500 text-black font-bold"
-                                    : "text-slate-350 hover:bg-white/5 hover:text-white"
-                                }`}
-                              >
-                                <span>
-                                  {act === "OFF"
-                                    ? "Desativado (Normal)"
-                                    : act === "DEFEND_ALWAYS"
-                                    ? "Defender Sempre"
-                                    : act === "COUNTER_ATTACK"
-                                    ? "Contra-atacar"
-                                    : act === "REFLECT_BEAM"
-                                    ? "Refletir Beam"
-                                    : "IA Completa"}
-                                </span>
-                                {isSelected && <Check className="w-3.5 h-3.5" />}
-                              </button>
-                            );
-                          })}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Counter-Attack Action (visible only when cpuAction === 'COUNTER_ATTACK') */}
-                  {cpuAction === "COUNTER_ATTACK" && (
-                    <div className="flex flex-col gap-1 border-t border-white/5 pt-2 relative">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                        Ataque de Contra-Ataque
-                      </span>
-                      
-                      <button
-                        onClick={() => {
-                          setIsCounterDropdownOpen(!isCounterDropdownOpen);
-                          setIsDummyDropdownOpen(false);
-                          setIsCpuDropdownOpen(false);
-                          AudioManager.getInstance().playSFX("click");
-                        }}
-                        className="flex items-center justify-between w-full bg-slate-900 border border-white/10 hover:border-amber-500/50 py-2 px-3 rounded-lg text-xs text-stone-200 transition-all cursor-pointer mt-1"
-                      >
-                        <span className="font-semibold text-[11px]">
-                          {counterAttackType === "LIGHT"
-                            ? "Soco Leve (Light)"
-                            : counterAttackType === "MEDIUM"
-                            ? "Soco Médio (Medium)"
-                            : counterAttackType === "HEAVY"
-                            ? "Soco Forte / Lançador"
-                            : counterAttackType === "SPECIAL"
-                            ? "Especial / Ki Blast"
-                            : "Ataque Supremo (Ultimate)"}
-                        </span>
-                        <ChevronDown className={`w-4 h-4 text-amber-500 transition-transform duration-200 ${isCounterDropdownOpen ? 'rotate-180' : ''}`} />
-                      </button>
-
-                      <AnimatePresence>
-                        {isCounterDropdownOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="overflow-hidden flex flex-col gap-0.5 mt-1 bg-slate-900 border border-white/5 rounded-lg p-1 z-50 shadow-xl"
-                          >
-                            {(Object.keys(CounterAttackType) as Array<keyof typeof CounterAttackType>).map((ct) => {
-                              const isSelected = counterAttackType === ct;
-                              return (
-                                <button
-                                  key={ct}
-                                  onClick={() => {
-                                    if (gameEngine) {
-                                      gameEngine.setCounterAttackType(CounterAttackType[ct]);
-                                      setCounterAttackTypeState(CounterAttackType[ct]);
-                                      setIsCounterDropdownOpen(false);
-                                      AudioManager.getInstance().playSFX("click");
-                                    }
-                                  }}
-                                  className={`flex items-center justify-between w-full py-1.5 px-2 rounded text-left text-[11px] transition-all cursor-pointer ${
-                                    isSelected
-                                      ? "bg-amber-500 text-black font-bold"
-                                      : "text-slate-350 hover:bg-white/5 hover:text-white"
-                                  }`}
-                                >
-                                  <span>
-                                    {ct === "LIGHT"
-                                      ? "Soco Leve (Light)"
-                                      : ct === "MEDIUM"
-                                      ? "Soco Médio (Medium)"
-                                      : ct === "HEAVY"
-                                      ? "Soco Forte / Lançador"
-                                      : ct === "SPECIAL"
-                                      ? "Especial / Ki Blast"
-                                      : "Ataque Supremo (Ultimate)"}
-                                  </span>
-                                  {isSelected && <Check className="w-3.5 h-3.5" />}
-                                </button>
-                              );
-                            })}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer/Quick Exit Actions */}
-                <div className="flex gap-2 border-t border-white/10 pt-3">
-                  <button
-                    onClick={handleCharacterSelect}
-                    className="flex-1 py-2 text-[10px] font-bold uppercase tracking-wider bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-300 rounded hover:text-white cursor-pointer"
-                  >
-                    Lutadores
-                  </button>
-                  <button
-                    onClick={handleModeMenu}
-                    className="flex-1 py-2 text-[10px] font-bold uppercase tracking-wider bg-red-950/80 hover:bg-red-900/90 border border-red-900 text-red-300 rounded cursor-pointer"
-                  >
-                    Modos
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
       </div>
     </div>
   );

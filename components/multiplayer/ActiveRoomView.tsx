@@ -1,7 +1,12 @@
 
-import React from 'react';
-import { Crown, CheckCircle2, Activity, Hash, Plus, Users, Zap, ArrowLeft, Trash2, UserPlus, LogOut, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Crown, CheckCircle2, Activity, Hash, Plus, Users, Zap, ArrowLeft, Trash2, UserPlus, LogOut, ShieldCheck, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { InviteFriendsDrawer } from './InviteFriendsDrawer';
+import { EmoteRadialMenu } from '../emotes/EmoteRadialMenu';
+import { EmoteDisplayBubble } from '../emotes/EmoteDisplayBubble';
+import { EmoteData } from '../emotes/EmoteTypes';
+import { NetworkManager } from '../../services/NetworkManager';
 
 interface ActiveRoomViewProps {
     currentRoom: any;
@@ -17,6 +22,7 @@ interface ActiveRoomViewProps {
     playSFX: (id: string) => void;
     AVATAR_LIST: any[];
     t: (key: string) => string;
+    isSpectator?: boolean;
 }
 
 export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
@@ -32,7 +38,8 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
     s,
     playSFX,
     AVATAR_LIST,
-    t
+    t,
+    isSpectator = false
 }) => {
     const isHost = net.isHost;
 
@@ -46,6 +53,46 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
     const guestTitle = !isHost ? playerProfile?.activeTitle : currentRoom?.guestTitle;
 
     const isPt = true; // Assuming PT as per request and context
+    const [isInviteDrawerOpen, setIsInviteDrawerOpen] = useState(false);
+    const [activeEmotes, setActiveEmotes] = useState<{
+        p1?: { emote: EmoteData; playerName: string } | null;
+        p2?: { emote: EmoteData; playerName: string } | null;
+    }>({});
+
+    const triggerEmote = (side: 'p1' | 'p2', emote: EmoteData, name: string) => {
+        setActiveEmotes(prev => ({
+            ...prev,
+            [side]: { emote, playerName: name }
+        }));
+        setTimeout(() => {
+            setActiveEmotes(prev => ({
+                ...prev,
+                [side]: null
+            }));
+        }, 3500);
+    };
+
+    const handleSelectEmote = (emote: EmoteData) => {
+        const side = isHost ? 'p1' : 'p2';
+        const myName = playerProfile?.name || (isHost ? hostName : (guestName || "P2"));
+        triggerEmote(side, emote, myName);
+
+        NetworkManager.getInstance().sendEmote({
+            emote,
+            side,
+            playerName: myName
+        });
+    };
+
+    useEffect(() => {
+        const net = NetworkManager.getInstance();
+        net.onEmoteReceived = (data: any) => {
+            if (data?.emote) {
+                const remoteSide = data.side || (isHost ? 'p2' : 'p1');
+                triggerEmote(remoteSide, data.emote, data.playerName || (remoteSide === 'p1' ? hostName : (guestName || "P2")));
+            }
+        };
+    }, [isHost, hostName, guestName]);
 
     return (
         <div className="w-full h-full flex flex-col bg-stone-950 relative overflow-hidden font-sans text-stone-200">
@@ -81,6 +128,14 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
                             <span className="text-[8px] md:text-[10px] font-black tracking-[0.2em] text-orange-500 uppercase">{currentRoom?.roomName || 'SALA'}</span>
                             <div className="w-1 h-1 rounded-full bg-stone-600" />
                             <span className="text-[8px] md:text-[10px] font-black tracking-[0.2em] text-stone-500 uppercase">ID: {currentRoom?.id?.substring(0, 8)}</span>
+                            {currentRoom?.spectators && currentRoom.spectators.length > 0 && (
+                                <>
+                                    <div className="w-1 h-1 rounded-full bg-stone-600" />
+                                    <span className="text-[8px] md:text-[10px] font-black tracking-[0.2em] text-purple-400 uppercase flex items-center gap-1">
+                                        <Eye size={12} /> {currentRoom.spectators.length} ESPECTADORES
+                                    </span>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -88,10 +143,10 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
                 <div className="flex flex-col items-end">
                     <button 
                         onClick={() => {
-                            navigator.clipboard.writeText(currentRoom.id);
                             playSFX('confirm');
+                            setIsInviteDrawerOpen(true);
                         }}
-                        className="flex items-center gap-2 px-4 py-2 bg-stone-900/40 hover:bg-stone-800/60 border border-white/5 rounded-lg text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-white transition-all backdrop-blur-md"
+                        className="flex items-center gap-2 px-4 py-2 bg-stone-900/40 hover:bg-stone-800/60 border border-white/5 hover:border-orange-500/40 rounded-lg text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-white transition-all backdrop-blur-md cursor-pointer"
                     >
                         <UserPlus size={12} />
                         {isPt ? 'CONVIDAR' : 'INVITE'}
@@ -122,7 +177,7 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
                         <div className="relative group/avatar">
                             <div className="w-32 h-32 md:w-40 md:h-40 rounded-3xl bg-stone-950 border-2 border-white/5 overflow-hidden transition-all duration-500 group-hover/avatar:border-orange-500/50 group-hover/avatar:scale-105 shadow-2xl">
                                 <img 
-                                    src={hostAvatar || "/Assets/UI/avatar_placeholder.png"} 
+                                    src={hostAvatar || "/Assets/avatar/retrato/1.png"} 
                                     className={`w-full h-full object-cover transition-all duration-700 ${ (isHost ? myReady : opponentReady) ? 'grayscale-0 scale-110' : 'grayscale group-hover/avatar:grayscale-0' }`} 
                                     alt="" 
                                 />
@@ -201,7 +256,7 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
                                 <div className="relative group/avatar">
                                     <div className="w-32 h-32 md:w-40 md:h-40 rounded-3xl bg-stone-950 border-2 border-white/5 overflow-hidden transition-all duration-500 group-hover/avatar:border-green-500/50 group-hover/avatar:scale-105 shadow-2xl">
                                         <img 
-                                            src={guestAvatar || "/Assets/UI/avatar_placeholder.png"} 
+                                            src={guestAvatar || "/Assets/avatar/retrato/1.png"} 
                                             className={`w-full h-full object-cover transition-all duration-700 ${ (!isHost ? myReady : opponentReady) ? 'grayscale-0 scale-110' : 'grayscale group-hover/avatar:grayscale-0' }`} 
                                             alt="" 
                                         />
@@ -250,6 +305,16 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
                                     <h4 className="text-stone-700 font-black uppercase tracking-widest">BUSCANDO...</h4>
                                     <p className="text-[8px] font-black text-stone-800 uppercase tracking-[0.2em] max-w-[150px] mt-2">AGUARDANDO A ENTRADA DE UM DESAFIANTE NO CANAL</p>
                                 </div>
+                                <button
+                                    onClick={() => {
+                                        playSFX('click');
+                                        setIsInviteDrawerOpen(true);
+                                    }}
+                                    className="mt-2 px-4 py-2 bg-orange-600/20 hover:bg-orange-600/40 border border-orange-500/40 rounded-xl text-[10px] font-black uppercase tracking-widest text-orange-400 hover:text-white transition-all flex items-center gap-2 cursor-pointer shadow-lg"
+                                >
+                                    <UserPlus size={14} />
+                                    CONVIDAR AMIGOS
+                                </button>
                             </div>
                         )}
                     </div>
@@ -271,30 +336,58 @@ export const ActiveRoomView: React.FC<ActiveRoomViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-4 w-full md:w-auto">
-                        <button 
-                            onClick={toggleReady}
-                            className={`flex-1 md:flex-none px-12 md:px-20 py-6 rounded-2xl font-black italic uppercase tracking-[0.3em] transition-all shadow-2xl active:scale-95 ${myReady ? 'bg-stone-800 text-stone-500 border border-white/5' : 'bg-orange-600 text-black hover:bg-orange-500 shadow-[0_0_40px_rgba(234,88,12,0.3)]'}`}
-                        >
-                            {myReady ? 'VOCÊ ESTÁ PRONTO' : 'ESTOU PRONTO'}
-                        </button>
-
-                        <AnimatePresence>
-                            {isHost && myReady && opponentReady && (
-                                <motion.button
-                                    initial={{ opacity: 0, scale: 0.9, x: 20 }}
-                                    animate={{ opacity: 1, scale: 1, x: 0 }}
-                                    exit={{ opacity: 0, scale: 0.9, x: 20 }}
-                                    onClick={handleStartSelection}
-                                    className="px-10 md:px-16 py-6 bg-white text-black rounded-2xl font-black italic uppercase tracking-[0.3em] shadow-[0_0_50px_rgba(255,255,255,0.4)] hover:scale-105 active:scale-95 transition-all flex items-center gap-4 group"
+                        {isSpectator ? (
+                            <div className="flex items-center gap-4 w-full md:w-auto">
+                                <div className="px-8 py-5 rounded-2xl bg-purple-950/60 border border-purple-500/30 text-purple-300 font-black italic uppercase tracking-[0.2em] text-xs flex items-center gap-3">
+                                    <Eye size={18} className="animate-pulse text-purple-400" />
+                                    <span>VOCÊ ESTÁ COMO ESPECTADOR</span>
+                                </div>
+                                <button
+                                    onClick={() => { playSFX('cancel'); leaveRoom(); }}
+                                    className="px-8 py-5 bg-stone-900 hover:bg-stone-800 text-stone-300 hover:text-white rounded-2xl border border-white/10 font-black italic uppercase tracking-widest text-xs transition-all active:scale-95 cursor-pointer"
                                 >
-                                    <Zap size={20} fill="currentColor" className="group-hover:rotate-12 transition-transform" />
-                                    <span>{isPt ? 'INICIAR' : 'START'}</span>
-                                </motion.button>
-                            )}
-                        </AnimatePresence>
+                                    SAIR DA SALA
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <button 
+                                    onClick={toggleReady}
+                                    className={`flex-1 md:flex-none px-12 md:px-20 py-6 rounded-2xl font-black italic uppercase tracking-[0.3em] transition-all shadow-2xl active:scale-95 ${myReady ? 'bg-stone-800 text-stone-500 border border-white/5' : 'bg-orange-600 text-black hover:bg-orange-500 shadow-[0_0_40px_rgba(234,88,12,0.3)]'}`}
+                                >
+                                    {myReady ? 'VOCÊ ESTÁ PRONTO' : 'ESTOU PRONTO'}
+                                </button>
+
+                                <AnimatePresence>
+                                    {isHost && myReady && opponentReady && (
+                                        <motion.button
+                                            initial={{ opacity: 0, scale: 0.9, x: 20 }}
+                                            animate={{ opacity: 1, scale: 1, x: 0 }}
+                                            exit={{ opacity: 0, scale: 0.9, x: 20 }}
+                                            onClick={handleStartSelection}
+                                            className="px-10 md:px-16 py-6 bg-white text-black rounded-2xl font-black italic uppercase tracking-[0.3em] shadow-[0_0_50px_rgba(255,255,255,0.4)] hover:scale-105 active:scale-95 transition-all flex items-center gap-4 group cursor-pointer"
+                                        >
+                                            <Zap size={20} fill="currentColor" className="group-hover:rotate-12 transition-transform" />
+                                            <span>{isPt ? 'INICIAR' : 'START'}</span>
+                                        </motion.button>
+                                    )}
+                                </AnimatePresence>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
+
+            <InviteFriendsDrawer 
+                isOpen={isInviteDrawerOpen} 
+                onClose={() => setIsInviteDrawerOpen(false)} 
+                currentRoom={currentRoom} 
+            />
+
+            {/* Emote Bubble & Radial Menu */}
+            <EmoteDisplayBubble emote={activeEmotes.p1?.emote || null} playerName={activeEmotes.p1?.playerName || hostName} position="top-left" />
+            <EmoteDisplayBubble emote={activeEmotes.p2?.emote || null} playerName={activeEmotes.p2?.playerName || (guestName || "P2")} position="top-right" />
+            <EmoteRadialMenu onSelectEmote={handleSelectEmote} positionClassName="bottom-8 right-8" />
 
             <style>{`
                 .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }

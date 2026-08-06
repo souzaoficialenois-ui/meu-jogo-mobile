@@ -34,6 +34,7 @@ import { ProjectileConfigKeyManager } from "./ProjectileConfigKeyManager";
 import { CollisionHelper } from "./CollisionHelper";
 import { AnimationManager } from "./AnimationManager";
 import { MoveManager } from "./MoveManager";
+import { InputBufferManager } from "./InputBufferManager";
 
 export class PhysicsManager {
   public static updatePhysics(engine: GameEngine, p: Player) {
@@ -99,6 +100,7 @@ export class PhysicsManager {
       p.state === PlayerState.FALLING_HIT_GROUND ||
       p.state === PlayerState.LAUNCHED
     ) {
+      InputBufferManager.getInstance().clearPlayerBuffer(p === engine.player1 ? 1 : 2);
       p.ataque = false;
       p.comboType = "NONE";
       p.comboStep = 0;
@@ -404,6 +406,28 @@ export class PhysicsManager {
 
     p.x += p.velocity.x;
     p.y += p.velocity.y;
+
+    // Top screen bounce for players in hit state
+    const isHitState = 
+      p.state === PlayerState.HIT || 
+      p.state === PlayerState.HIT_2 || 
+      p.state === PlayerState.HIT_3 || 
+      p.state === PlayerState.LAUNCHED || 
+      p.state === PlayerState.FALLING_HIT;
+
+    if (p.y < 0 && isHitState) {
+      p.y = 0;
+      p.velocity.y = Math.abs(p.velocity.y) * 0.6; // Bounce back down
+      
+      // Spawn hit particles at the top for visual feedback
+      if (engine.particleManager) {
+        engine.particleManager.spawnHitSpark(p.x + p.width / 2, 5, true);
+      }
+      try {
+        AudioManager.getInstance().playSFX("block");
+      } catch (e) {}
+    }
+
     if (p.landingDelayTimer > 0) {
       p.landingDelayTimer--;
       if (p.landingDelayTimer === 0 && p.state === PlayerState.LANDING) {
@@ -574,8 +598,8 @@ export class PhysicsManager {
 
         if (p.attackTimer > 0) {
           p.attackTimer--;
-          p.velocity.y = -5;
-          p.velocity.x *= 0.8; 
+          p.velocity.y = -1;
+          p.velocity.x = 0; 
         } else {
           // Phase 2 can ONLY start after Phase 1 finishes
           p.superDashPhase = 2;
@@ -683,7 +707,8 @@ export class PhysicsManager {
           (p as any)["dragonRushDirX"] = p.facingRight ? 1 : -1;
           
           try {
-            engine.particleManager.spawn("SPEED_LINES", p.pos.x, p.pos.y - p.height / 2, 5);
+            engine.particleManager.spawn("SPEED_LINES", p.pos.x, p.pos.y - p.height / 2, 5, "#ffffff");
+            engine.particleManager.spawn("AURA", p.pos.x, p.pos.y - p.height / 2, 5, "#ffffff", { size: 5, speed: 3 });
           } catch (e) {}
         }
       } else if (p.comboStep === 1) {
@@ -699,7 +724,8 @@ export class PhysicsManager {
         p.velocity.y = 0;
 
         if (engine.frameCount % 3 === 0) {
-          engine.particleManager.spawn("SPEED_LINES", p.pos.x, p.pos.y - p.height / 2, 1);
+          engine.particleManager.spawn("SPEED_LINES", p.pos.x, p.pos.y - p.height / 2, 1, "#ffffff");
+          engine.particleManager.spawn("AURA", p.pos.x, p.pos.y - p.height / 2, 1, "#ffffff", { size: 3, speed: 1 });
         }
         engine.spawnAfterimageAt(p, p.x, p.y);
 
@@ -982,7 +1008,7 @@ export class PhysicsManager {
 
         if (isContacting && !(p as any).ssj4_spec3_hit) {
           (p as any).ssj4_spec3_hit = true;
-          opponent.takeDamage(20);
+          opponent.takeDamage(20, p);
           opponent.state = PlayerState.LAUNCHED;
           opponent.isGrounded = false;
           opponent.velocity.x = p.facingRight ? 24 : -24;
@@ -1044,7 +1070,7 @@ export class PhysicsManager {
             isFacingAttacker;
 
           if (isBlocking) {
-            opponent.takeDamage(10);
+            opponent.takeDamage(10, p);
             opponent.guard -= 20;
             opponent.guardRegenTimer = GUARD_REGEN_DELAY;
             opponent.velocity.x = p.facingRight ? 10 : -10;
@@ -1084,7 +1110,7 @@ export class PhysicsManager {
         opponent.pos.x = p.pos.x + sideOffset;
 
         if (p.animFrame % 2 === 0 && p.animTimer === 0) {
-          opponent.takeDamage(2);
+          opponent.takeDamage(2, p);
           engine.particleManager.spawn(
             "IMPACT",
             opponent.pos.x,
@@ -1109,7 +1135,7 @@ export class PhysicsManager {
 
         if (!p.hasHit && p.animFrame >= 1) {
           p.hasHit = true;
-          opponent.takeDamage(10);
+          opponent.takeDamage(10, p);
           opponent.state = PlayerState.LAUNCHED;
           opponent.isGrounded = false;
           opponent.velocity.x = p.facingRight ? 4.5 : -4.5; // diagonal
@@ -1153,7 +1179,7 @@ export class PhysicsManager {
           p.hasHit = true;
           opponent.velocity.y = 12; // smash down hard
           opponent.velocity.x = p.facingRight ? 6 : -6; // diagonal fall
-          opponent.takeDamage(15);
+          opponent.takeDamage(15, p);
           engine.particleManager.spawn(
             "IMPACT",
             opponent.pos.x,
@@ -1195,7 +1221,7 @@ export class PhysicsManager {
           p.hasHit = true;
           opponent.velocity.x = p.facingRight ? 7 : -7; // diagonal up
           opponent.velocity.y = -10; // launched up again
-          opponent.takeDamage(20);
+          opponent.takeDamage(20, p);
           if (engine.camera)
             engine.camera.addScreenShake(15, 15, "IMPULSE", 1.2);
           engine.particleManager.spawn(
@@ -1294,7 +1320,7 @@ export class PhysicsManager {
 
           if (isContacting) {
             p["ssj4_spec2_hit"] = true;
-            opponent.takeDamage(12);
+            opponent.takeDamage(12, p);
             // Após o impacto, o oponente é lançado horizontalmente para longe.
             opponent.state = PlayerState.LAUNCHED;
             opponent.isGrounded = false;
@@ -1344,7 +1370,7 @@ export class PhysicsManager {
 
           if (isContacting) {
             p["ssj4_spec2_hit"] = true;
-            opponent.takeDamage(14);
+            opponent.takeDamage(14, p);
             // Após o impacto, o oponente é lançado para cima em trajetória diagonal.
             opponent.state = PlayerState.LAUNCHED;
             opponent.isGrounded = false;
@@ -1393,7 +1419,7 @@ export class PhysicsManager {
 
           if (isContacting) {
             p["ssj4_spec2_hit"] = true;
-            opponent.takeDamage(18);
+            opponent.takeDamage(18, p);
             // Após o impacto, o oponente é lançado para baixo.
             opponent.state = PlayerState.LAUNCHED;
             opponent.isGrounded = false;
@@ -1458,7 +1484,7 @@ export class PhysicsManager {
 
         if (isContacting && !p["ssj4_spec4_hit_fase2"]) {
           p["ssj4_spec4_hit_fase2"] = true;
-          opponent.takeDamage(15);
+          opponent.takeDamage(15, p);
           opponent.state = PlayerState.LAUNCHED;
           opponent.isGrounded = false;
           opponent.velocity.x = p.facingRight ? 20 : -20;
@@ -1505,7 +1531,7 @@ export class PhysicsManager {
 
         if (isContacting && !p["ssj4_spec4_hit_fase4"]) {
           p["ssj4_spec4_hit_fase4"] = true;
-          opponent.takeDamage(25); // Dano do golpe final
+          opponent.takeDamage(25, p); // Dano do golpe final
           opponent.state = PlayerState.LAUNCHED;
           opponent.isGrounded = false;
           opponent.velocity.x = p.facingRight ? 10 : -10;
@@ -1556,7 +1582,7 @@ export class PhysicsManager {
           opponent.state = PlayerState.STUNNED;
           opponent.stunTimer = 15;
           if (engine.frameCount % 5 === 0) {
-            opponent.takeDamage(4);
+            opponent.takeDamage(4, p);
             if (engine.camera) engine.camera.addScreenShake(4, 2, "PERLIN", 0.15);
             try {
               engine.particleManager.spawnHitSpark(opponent.pos.x, opponent.pos.y - 50, false);
@@ -1613,7 +1639,7 @@ export class PhysicsManager {
 
           if (isHit) {
             p["goku_ssj_sp2_hit1"] = true;
-            opponent.takeDamage(12);
+            opponent.takeDamage(12, p);
             opponent.state = PlayerState.STUNNED;
             opponent.stunTimer = 15;
             opponent.velocity.x = 0;
@@ -1685,7 +1711,7 @@ export class PhysicsManager {
 
           if (isHit) {
             p["goku_ssj_sp2_hit2"] = true;
-            opponent.takeDamage(15);
+            opponent.takeDamage(15, p);
             opponent.state = PlayerState.STUNNED;
             opponent.stunTimer = 15;
             opponent.velocity.x = 0;
@@ -1813,7 +1839,7 @@ export class PhysicsManager {
           p["goku_ssj_sp3_hit"] = true;
 
           if (engine.frameCount % 5 === 0 && opponent.invincibleTimer <= 0) {
-            opponent.takeDamage(4);
+            opponent.takeDamage(4, p);
             if (engine.camera) engine.camera.addScreenShake(6, 3, "PERLIN", 0.15);
             try {
               engine.particleManager.spawnHitSpark(opponent.pos.x, opponent.pos.y - 50, false);
@@ -1934,7 +1960,7 @@ export class PhysicsManager {
           p["broly_sp2_hit_applied"] = true;
 
           // Dano é aplicado
-          opponent.takeDamage(25);
+          opponent.takeDamage(25, p);
 
           // O oponente é lançado para longe em uma trajetória diagonal para cima
           opponent.state = PlayerState.LAUNCHED;
@@ -2224,7 +2250,7 @@ export class PhysicsManager {
 
         if (isContacting && !p["gohan_special4_hit_phase1"]) {
           p["gohan_special4_hit_phase1"] = true;
-          opponent.takeDamage(18);
+          opponent.takeDamage(18, p);
           opponent.state = PlayerState.LAUNCHED;
           opponent.isGrounded = false;
           opponent.velocity.x = p.facingRight ? 18 : -18;
@@ -2264,7 +2290,7 @@ export class PhysicsManager {
 
         if (isContacting && !p["gohan_special4_hit_phase2"]) {
           p["gohan_special4_hit_phase2"] = true;
-          opponent.takeDamage(22);
+          opponent.takeDamage(22, p);
           opponent.state = PlayerState.LAUNCHED;
           opponent.isGrounded = false;
           opponent.velocity.x = p.facingRight ? 35 : -35; // Lançado longe na horizontal
@@ -2337,7 +2363,7 @@ export class PhysicsManager {
             isFacingAttacker;
 
           if (isBlocking) {
-            opponent.takeDamage(10);
+            opponent.takeDamage(10, p);
             opponent.guard -= 20;
             opponent.guardRegenTimer = GUARD_REGEN_DELAY;
             opponent.velocity.x = p.facingRight ? 10 : -10;
@@ -2529,10 +2555,9 @@ export class PhysicsManager {
       if (p.comboStep === 0) {
         // FASE 2: Ambos travados na posição de colisão.
         if (p.dragonComboTimer && p.dragonComboTimer % 15 === 0 && p.dragonComboTimer < 60) {
-          opponent.takeDamage(4);
+          opponent.takeDamage(4, p);
           try {
             AudioManager.getInstance().playSFX("hit_medium");
-            engine.particleManager.spawn("HIT", opponent.pos.x, opponent.pos.y - 50, 3);
           } catch (e) {}
         }
         const overlap = 25;
@@ -2552,10 +2577,9 @@ export class PhysicsManager {
 
         if (p.animFinished || p.dragonComboTimer >= 80) {
           // Final strike damage before transitioning to Phase 3 pose
-          opponent.takeDamage(15);
+          opponent.takeDamage(15, p);
           try {
             AudioManager.getInstance().playSFX("hit_heavy");
-            engine.particleManager.spawn("IMPACT", opponent.pos.x, opponent.pos.y - 50, 5);
           } catch (e) {}
 
           p.comboStep = 1; 
@@ -2603,7 +2627,7 @@ export class PhysicsManager {
         const animKey = resolveAnimationKey(p.data.id, p.state, p.comboType, p.comboStep, p.ataque, undefined, undefined, undefined, 1, p.isGrounded, false, false, p.data.spriteConfig);
         const anim = p.data.spriteConfig?.animations[animKey];
         let totalFrames = (anim as any)?.frames?.length || anim?.frames || 8;
-        if (anim?.isGif) {
+        if (anim?.isGif || (anim?.imageUrl && anim.imageUrl.toLowerCase().endsWith('.gif'))) {
           const gifFrames = AnimationManager.getInstance().getGifFrameCount(anim.imageUrl);
           if (gifFrames > 0) totalFrames = gifFrames;
         }
@@ -2659,7 +2683,7 @@ export class PhysicsManager {
       
       // Obter contagem de frames real para GIFs através do AnimationManager
       let totalFrames = (anim as any)?.frames?.length || anim?.frames || 8;
-      if (anim?.isGif) {
+      if (anim?.isGif || (anim?.imageUrl && anim.imageUrl.toLowerCase().endsWith('.gif'))) {
         const gifFrames = AnimationManager.getInstance().getGifFrameCount(anim.imageUrl);
         if (gifFrames > 0) totalFrames = gifFrames;
       }
@@ -3321,7 +3345,7 @@ export class PhysicsManager {
                 "BEAM_LAUNCH_DUST",
                 p.x + p.width / 2 + (p.facingRight ? -40 : 40),
                 p.y + p.height,
-                "/Assets/efeitos/poeira/5.gif",
+                "/Assets/efeitos/poeira/super_dash.gif",
                 10,
                 true,
                 p === engine.player1 ? "p1" : "p2",
@@ -3348,22 +3372,24 @@ export class PhysicsManager {
               (p as any).hasSpawnedInSequence = true;
               (p as any).spawnedBeamProjectile = proj; // Track this specific projectile!
               engine.projectiles.push(proj);
-              engine.particleManager.spawn(
-                "AURA",
-                spawnX,
-                spawnY + PROJECTILE_SIZE / 2,
-                10,
-                p.data.color,
-                { size: 8, speed: 6 },
-              );
-              engine.particleManager.spawn(
-                "ENERGY",
-                spawnX + (p.facingRight ? 20 : -20),
-                spawnY + PROJECTILE_SIZE / 2,
-                15,
-                "#ffffff",
-                { size: 10, speed: 8, spread: 1.5 },
-              );
+              if (!isBeam) {
+                engine.particleManager.spawn(
+                  "AURA",
+                  spawnX,
+                  spawnY + PROJECTILE_SIZE / 2,
+                  10,
+                  p.data.color,
+                  { size: 6, speed: 4 },
+                );
+                engine.particleManager.spawn(
+                  "ENERGY",
+                  spawnX + (p.facingRight ? 20 : -20),
+                  spawnY + PROJECTILE_SIZE / 2,
+                  15,
+                  "#ffffff",
+                  { size: 6, speed: 5, spread: 1.0 },
+                );
+              }
             }
           }
         }
@@ -3918,7 +3944,7 @@ export class PhysicsManager {
 
       if (isBlocking) {
         // Guard hit
-        defender.takeDamage(15);
+        defender.takeDamage(15, attacker);
         defender.guard = Math.max(0, defender.guard - 25);
         defender.guardRegenTimer = GUARD_REGEN_DELAY;
         defender.velocity.x = attacker.facingRight ? 12 : -12;
@@ -3943,7 +3969,7 @@ export class PhysicsManager {
         attacker.ki = Math.min(MAX_KI, attacker.ki + 40); // gain some Ki
         
         // Apply damage
-        defender.takeDamage(45); // highly satisfying HEAVY damage
+        defender.takeDamage(45, attacker); // highly satisfying HEAVY damage
 
         // Place defender in launched / knockback state
         defender.state = PlayerState.LAUNCHED;

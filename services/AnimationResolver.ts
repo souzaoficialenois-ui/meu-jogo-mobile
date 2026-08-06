@@ -183,8 +183,31 @@ export function resolveAnimationKey(
   if (state === PlayerState.SUPER_DASH) {
     // Try phase specific names first
     const currentPhase = superDashPhase ?? ((attackTimer || 0) > 0 ? 1 : 2);
-    const keys = [`SUPER_DASH_${currentPhase}`, `super_dash_${currentPhase}`, `SUPER_DASH`, `super_dash` ];
-    for (const k of keys) if (config?.animations?.[k]) return k;
+    if (currentPhase === 1) {
+      const keys = [
+        "SUPER_DASH_1",
+        "super_dash_1",
+        PlayerState.DASH_START,
+        "DASH_START",
+        "dash_start",
+        PlayerState.SUPER_DASH,
+        "SUPER_DASH",
+        "super_dash"
+      ];
+      for (const k of keys) if (config?.animations?.[k]) return k;
+    } else {
+      const keys = [
+        "SUPER_DASH_2",
+        "super_dash_2",
+        PlayerState.DASHING,
+        "DASHING",
+        "dashing",
+        PlayerState.SUPER_DASH,
+        "SUPER_DASH",
+        "super_dash"
+      ];
+      for (const k of keys) if (config?.animations?.[k]) return k;
+    }
     return animKey;
   }
 
@@ -229,7 +252,13 @@ export function resolveAnimationKey(
     return "dragon_rush_1";
   }
 
-  if (isKOTag) return "TAG_IN_KO";
+  if (isKOTag) {
+    const koKeys = ["TAG_IN_KO", "ENTRY_BY_KO", "entrada_por_ko", "troca_por_ko", PlayerState.TAG_IN, "INTRO_1_1", "introducao_1_1", "SUPER_DASH_2", "super_dash_2"];
+    for (const k of koKeys) {
+      if (config?.animations?.[k]) return k;
+    }
+    return "TAG_IN_KO";
+  }
   
   if (state === PlayerState.TAG_IN) {
     const keys = ["SUPER_DASH_2", "super_dash_2", "SUPER_DASH", "super_dash"];
@@ -239,9 +268,21 @@ export function resolveAnimationKey(
   // 2. Intro Resolution
   if (state === PlayerState.INTRO) {
     const step = ultPhase || 1;
-    const key = `INTRO_${step}`;
-    if (config?.animations?.[key]) return key;
-    if (config?.animations?.[key.toLowerCase()]) return key.toLowerCase();
+    const patterns = [
+      `INTRO_${step}`,
+      `INTRODUCAO_${step}`,
+      `INTRODUCAO_1_${step}`,
+      `INTRO_1_${step}`,
+      `introducao_${step}`,
+      `introducao_1_${step}`,
+      `intro_${step}`,
+      `intro_1_${step}`,
+      `INTRO`
+    ];
+    for (const p of patterns) {
+      if (config?.animations?.[p]) return p;
+      if (config?.animations?.[p.toLowerCase()]) return p.toLowerCase();
+    }
     return PlayerState.INTRO;
   }
 
@@ -257,6 +298,26 @@ export function resolveAnimationKey(
       if (config?.animations?.[simpleTransform]) return simpleTransform;
     }
     return state as string;
+  }
+
+  // Victory Resolution
+  if (state === PlayerState.VICTORY) {
+    const victoryKeys = ["VICTORY", "vitoria", "Victory", "Victory_1", "entrada_por_ko", "vitoria_1", "INTRO_1", "parado"];
+    for (const k of victoryKeys) {
+      if (config?.animations?.[k]) return k;
+      if (config?.animations?.[k.toLowerCase()]) return k.toLowerCase();
+    }
+    return PlayerState.VICTORY;
+  }
+
+  // Defeat Resolution
+  if (state === PlayerState.DEFEAT) {
+    const defeatKeys = ["DEFEAT", "derrota", "Defeat", "Defeat_1", "hit_ground_stun", "hit_ground_stunned", "HIT_GROUND_STUNNED", "hit_bounce", "dano_1"];
+    for (const k of defeatKeys) {
+      if (config?.animations?.[k]) return k;
+      if (config?.animations?.[k.toLowerCase()]) return k.toLowerCase();
+    }
+    return PlayerState.DEFEAT;
   }
 
   // 4. Attack Resolution
@@ -343,14 +404,31 @@ export function resolveAnimationKey(
     const typeNum = ultType || parseInt(typeNumStr);
     const phaseNum = ultPhase || ((comboStep || 0) + 1);
 
-    const patterns = [
-      `ULTIMATE_${typeNum}_${phaseNum}`,
-      `Ultimate_${typeNum}_${phaseNum}`,
-      `Ultimate_Parte${typeNum}_${phaseNum}`,
-      `ULTIMATE_${typeNum}`,
-      `Ultimate_${typeNum}`
-    ];
-    for (const p of patterns) if (config?.animations?.[p]) return p;
+    for (let ph = phaseNum; ph >= 1; ph--) {
+      const patterns = [
+        `ULTIMATE_${typeNum}_${ph}`,
+        `Ultimate_${typeNum}_${ph}`,
+        `Ultimate_Parte${typeNum}_${ph}`,
+        `ultimate_${typeNum}_${ph}`,
+        `ultimate_parte_${typeNum}_${ph}`,
+        `ULTIMATE_${typeNum}`,
+        `Ultimate_${typeNum}`
+      ];
+      if (typeNum === 3) {
+        patterns.unshift(
+          `ULTIMATE_3_${ph}`,
+          `Ultimate_3_${ph}`,
+          `ULTIMATE_COMBINADO_1_${ph}`,
+          `ultimate_combinado_1_${ph}`,
+          `SUPER_ESPECIAL_COMBINADO_${ph}`,
+          `ULTIMATE_COMBINADO_${ph}`,
+          `ultimate_combinado_${ph}`
+        );
+      }
+      for (const p of patterns) {
+        if (config?.animations?.[p]) return p;
+      }
+    }
     return `ULTIMATE_${typeNum}_1`;
   }
 

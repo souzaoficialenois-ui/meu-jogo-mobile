@@ -1,8 +1,11 @@
 
-import React from 'react';
-import { Sliders, Globe, Lock, Gamepad2, Sparkles, RefreshCw, Eye, Swords } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sliders, Globe, Lock, Gamepad2, Sparkles, RefreshCw, Eye, Swords, Ticket, Tv } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RoomConfig } from '../../services/LobbyService';
+import { useSceneManager } from '../../contexts/SceneContext';
+import { AdOverlayModal } from '../ads/AdOverlayModal';
+import { AudioManager } from '../../services/AudioManager';
 
 interface CreateRoomTabProps {
     roomConfig: RoomConfig;
@@ -23,16 +26,52 @@ export const CreateRoomTab: React.FC<CreateRoomTabProps> = ({
     s,
     playSFX
 }) => {
+    const { roomTokens, addRoomTokens } = useSceneManager();
+    const [isAdOpen, setIsAdOpen] = useState(false);
+
+    const handleAdClose = (receivedReward: boolean) => {
+        setIsAdOpen(false);
+        if (receivedReward) {
+            addRoomTokens(2);
+            AudioManager.getInstance().playSFX('victory');
+        }
+    };
+
     return (
         <div className="space-y-8 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Header / Intro */}
-            <div className="flex flex-col gap-2 mb-2">
-                <h3 className="text-2xl md:text-3xl font-black italic uppercase tracking-widest text-white leading-none">
-                    CRIAR NOVA ARENA
-                </h3>
-                <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-stone-500 opacity-80">
-                    Configure as regras e o nome da sua sala de combate
-                </p>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-2">
+                <div>
+                    <h3 className="text-2xl md:text-3xl font-black italic uppercase tracking-widest text-white leading-none">
+                        CRIAR NOVA ARENA
+                    </h3>
+                    <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-stone-500 opacity-80 mt-1">
+                        Configure as regras e o nome da sua sala de combate
+                    </p>
+                </div>
+
+                {/* Room Tokens Badge & Watch Ad Button */}
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => { playSFX('click'); setIsAdOpen(true); }}
+                        className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 px-4 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 transition-transform active:scale-95 cursor-pointer"
+                    >
+                        <Tv className="w-4 h-4" />
+                        <span>GANHAR TOKENS GRÁTIS (ANÚNCIO)</span>
+                    </button>
+
+                    <div className="flex items-center gap-3 bg-stone-900/90 border border-orange-500/40 px-4 py-2.5 rounded-2xl shadow-lg backdrop-blur-md shrink-0">
+                        <div className="p-1.5 rounded-lg bg-orange-500/20 text-orange-400">
+                            <Ticket className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <span className="text-[8px] font-black text-stone-400 uppercase tracking-widest block leading-none">SEUS TOKENS</span>
+                            <span className="text-sm font-black italic text-orange-400">
+                                {roomTokens} {roomTokens === 1 ? 'TOKEN DE SALA' : 'TOKENS DE SALA'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
@@ -192,41 +231,60 @@ export const CreateRoomTab: React.FC<CreateRoomTabProps> = ({
                 )}
             </AnimatePresence>
 
-            {/* Bottom Actions - Fixed to Bottom on Mobile? No, just keep as a nice footer card */}
+            {/* Bottom Actions */}
             <div className="mt-8 flex flex-col md:flex-row items-center justify-between bg-stone-900/20 backdrop-blur-2xl p-6 md:p-8 rounded-[32px] border border-white/5 gap-6">
                 <div className="flex flex-col items-center md:items-start text-center md:text-left gap-1">
                     <span className="text-[10px] font-black tracking-[0.3em] text-stone-500 uppercase opacity-70">CONFIRMAÇÃO DA SALA</span>
                     <h4 className="text-sm md:text-base font-black italic text-white uppercase tracking-widest">
                         {roomConfig.name || 'ARENA SEM NOME'} • <span className="text-orange-500">{roomConfig.maxCharacters}v{roomConfig.maxCharacters}</span> • {roomConfig.isPrivate ? 'FECHADA' : 'ABERTA'}
                     </h4>
+                    <span className="text-[10px] font-bold text-orange-400/90 uppercase tracking-wider mt-1 flex items-center gap-1.5">
+                        <Ticket className="w-3.5 h-3.5" /> Consome: 1 Token de Sala (Disponível: {roomTokens})
+                    </span>
                 </div>
                 
-                <button 
-                    onClick={handleCreateRoom}
-                    disabled={isCreating}
-                    className={`
-                        relative overflow-hidden px-16 py-6 md:py-7 rounded-[20px] font-black italic uppercase tracking-[0.3em] transition-all flex items-center gap-4 group/btn
-                        ${isCreating 
-                            ? 'bg-stone-800 text-stone-500 cursor-wait' 
-                            : 'bg-orange-600 text-black hover:bg-orange-500 hover:scale-[1.02] active:scale-95 shadow-[0_0_40px_rgba(234,88,12,0.2)]'}
-                    `}
-                >
-                    {isCreating ? (
-                        <>
-                            <RefreshCw className="animate-spin w-5 h-5" />
-                            <span>PROCESSANDO...</span>
-                        </>
-                    ) : (
-                        <>
-                            <Sparkles className="w-5 h-5 group-hover/btn:rotate-12 transition-transform" />
-                            <span>CRIAR AGORA</span>
-                        </>
-                    )}
-                    
-                    {/* Glossy Overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-white/10 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                </button>
+                {roomTokens < 1 ? (
+                    <button 
+                        onClick={() => { playSFX('click'); setIsAdOpen(true); }}
+                        className="relative overflow-hidden px-10 py-6 rounded-[20px] bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black italic uppercase tracking-[0.2em] transition-all flex items-center gap-3 shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer"
+                    >
+                        <Tv className="w-5 h-5" />
+                        <span>GANHAR 2 TOKENS (VER ANÚNCIO)</span>
+                    </button>
+                ) : (
+                    <button 
+                        onClick={handleCreateRoom}
+                        disabled={isCreating}
+                        className={`
+                            relative overflow-hidden px-12 md:px-16 py-6 md:py-7 rounded-[20px] font-black italic uppercase tracking-[0.3em] transition-all flex items-center gap-4 group/btn cursor-pointer
+                            ${isCreating 
+                                ? 'bg-stone-800 text-stone-500 cursor-wait' 
+                                : 'bg-orange-600 text-black hover:bg-orange-500 hover:scale-[1.02] active:scale-95 shadow-[0_0_40px_rgba(234,88,12,0.2)]'}
+                        `}
+                    >
+                        {isCreating ? (
+                            <>
+                                <RefreshCw className="animate-spin w-5 h-5" />
+                                <span>PROCESSANDO...</span>
+                            </>
+                        ) : (
+                            <>
+                                <Sparkles className="w-5 h-5 group-hover/btn:rotate-12 transition-transform" />
+                                <span>CRIAR AGORA</span>
+                            </>
+                        )}
+                        
+                        {/* Glossy Overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-white/10 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                    </button>
+                )}
             </div>
+
+            <AdOverlayModal
+                isOpen={isAdOpen}
+                rewardConfig={{ type: 'ROOM_TOKEN', amount: 2 }}
+                onClose={handleAdClose}
+            />
         </div>
     );
 };

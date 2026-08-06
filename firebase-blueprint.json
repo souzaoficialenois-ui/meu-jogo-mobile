@@ -61,9 +61,28 @@
         "tier": { "type": "string" },
         "winRate": { "type": "number" },
         "topCharacterId": { "type": "string" },
-        "lastUpdated": { "type": "integer" }
+        "lastUpdated": { "type": "integer" },
+        "seasonId": { "type": "string" },
+        "wins": { "type": "integer" },
+        "losses": { "type": "integer" },
+        "winStreak": { "type": "integer" }
       },
       "required": ["userId", "name", "points"]
+    },
+    "Season": {
+      "title": "Competitive Season",
+      "description": "Represents a competitive season with dates and rewards.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "COMPLETED", "UPCOMING"] },
+        "startDate": { "type": "integer" },
+        "endDate": { "type": "integer" },
+        "description": { "type": "string" },
+        "rewardsDescription": { "type": "string" }
+      },
+      "required": ["id", "name", "status"]
     },
     "GlobalMessage": {
       "title": "Global Message",
@@ -99,6 +118,14 @@
     "/rankings/{userId}": {
       "schema": "RankEntry",
       "description": "Global leaderboard entries"
+    },
+    "/seasons/{seasonId}": {
+      "schema": "Season",
+      "description": "Competitive season details"
+    },
+    "/seasons/{seasonId}/rankings/{userId}": {
+      "schema": "RankEntry",
+      "description": "Season specific leaderboard entries"
     },
     "/sessions/{userId}": {
       "schema": "Session",

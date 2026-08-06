@@ -4,6 +4,10 @@ export interface BeamFamily {
   id: string;
   name: string;
   color?: string;
+  glowColor?: string;
+  glowBlur?: number;
+  glowRadius?: number;
+  glowIntensity?: number;
   start?: AnimationFrameData;
   middle: AnimationFrameData;
   end?: AnimationFrameData;
@@ -583,7 +587,10 @@ export const BEAM_DATABASE: Record<string, BeamFamily> = {
     "ownerAnimationKey": "Especial_1_2",
     "ownerCharacterName": "BROLY IKARI",
     "configKey": "CHAVE_BEAM_42",
-    "baseBeamId": "CHAVE_BEAM_42"
+    "baseBeamId": "CHAVE_BEAM_42",
+    "glowBlur": 30,
+    "glowColor": "#00c900",
+    "glowIntensity": 1.5
   },
   "CHAVE_BEAM_008": {
     "id": "CHAVE_BEAM_008",
@@ -645,10 +652,13 @@ export const BEAM_DATABASE: Record<string, BeamFamily> = {
     "beamBrightness": 0.85,
     "beamOpacity": 1,
     "ownerCharacterId": "kuririn",
-    "ownerAnimationKey": "Ultimate_2_3",
+    "ownerAnimationKey": "ULTIMATE_2_3",
     "ownerCharacterName": "KURIRIN",
     "configKey": "CHAVE_BEAM_008",
-    "baseBeamId": "CHAVE_BEAM_008"
+    "baseBeamId": "CHAVE_BEAM_008",
+    "glowColor": "#ff8a00",
+    "glowBlur": 27,
+    "glowIntensity": 1.9
   },
   "CHAVE_BEAM_43": {
     "id": "CHAVE_BEAM_43",
@@ -830,7 +840,15 @@ export const BEAM_DATABASE: Record<string, BeamFamily> = {
         "centerX": 298,
         "scale": 3.15,
         "beamSpacing": -33
-    }
+    },
+    "ownerCharacterId": "kuririn",
+    "ownerAnimationKey": "ULTIMATE_3_9",
+    "ownerCharacterName": "KURIRIN",
+    "configKey": "CHAVE_BEAM_003",
+    "baseBeamId": "CHAVE_BEAM_003",
+    "glowColor": "#ffbb1f",
+    "glowBlur": 40,
+    "glowIntensity": 1.7
   },
   "CHAVE_BEAM_002": {
     "id": "CHAVE_BEAM_002",
@@ -844,7 +862,7 @@ export const BEAM_DATABASE: Record<string, BeamFamily> = {
         "isGif": true,
         "speed": 4,
         "loop": true,
-        "offsetX": -119,
+        "offsetX": -112,
         "offsetY": -211,
         "originX": 110,
         "originY": 222,
@@ -860,8 +878,8 @@ export const BEAM_DATABASE: Record<string, BeamFamily> = {
         "isGif": true,
         "speed": 4,
         "loop": true,
-        "offsetX": 0,
-        "offsetY": 4,
+        "offsetX": -4,
+        "offsetY": 8,
         "kiOriginX": 61,
         "centerX": -2,
         "centerY": 116,
@@ -887,10 +905,13 @@ export const BEAM_DATABASE: Record<string, BeamFamily> = {
         "beamSpacing": -2
     },
     "ownerCharacterId": "goku_base",
-    "ownerAnimationKey": "SPECIAL_1_2",
+    "ownerAnimationKey": "Especial_1_2",
     "ownerCharacterName": "GOKU BASE",
     "configKey": "CHAVE_BEAM_002",
-    "baseBeamId": "CHAVE_BEAM_002"
+    "baseBeamId": "CHAVE_BEAM_002",
+    "glowColor": "#16c6fe",
+    "glowBlur": 30,
+    "glowIntensity": 1.8
   },
   "CHAVE_BEAM_006": {
     "id": "CHAVE_BEAM_006",
@@ -950,7 +971,10 @@ export const BEAM_DATABASE: Record<string, BeamFamily> = {
     "ownerAnimationKey": "Especial_1_2",
     "ownerCharacterName": "KURIRIN",
     "configKey": "CHAVE_BEAM_006",
-    "baseBeamId": "CHAVE_BEAM_006"
+    "baseBeamId": "CHAVE_BEAM_006",
+    "glowColor": "#30f3fe",
+    "glowBlur": 24,
+    "glowIntensity": 1.6
   },
   "CHAVE_BEAM_001": {
     "id": "CHAVE_BEAM_001",

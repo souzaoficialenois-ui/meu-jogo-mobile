@@ -5,6 +5,7 @@ import { AudioPriority, SoundCategory } from './AudioManifest';
 import { AudioPool } from './AudioPool';
 import { AudioSettings } from './AudioSettings';
 import { ManifestManager } from '../../../services/ManifestManager';
+import { SpatialAudioService } from '../../../services/SpatialAudioService';
 
 interface ActiveVoiceRecord {
     key: string;
@@ -105,7 +106,7 @@ export class VoiceManager {
     /**
      * Play vocal quote with monologue interruption and priority checks.
      */
-    public async playVoice(voiceKey: string) {
+    public async playVoice(voiceKey: string, worldX?: number, getPositionX?: () => number) {
         const settings = AudioSettings.getInstance();
         const baseVol = settings.getEffectiveVolume(SoundCategory.VOICE);
         if (baseVol <= 0) return;
@@ -164,6 +165,14 @@ export class VoiceManager {
 
                 const howlId = howlNode.play();
                 howlNode.volume(baseVol, howlId);
+
+                if (worldX !== undefined || getPositionX) {
+                    const posX = getPositionX ? getPositionX() : (worldX ?? 0);
+                    SpatialAudioService.getInstance().applyPan(howlNode, howlId, posX);
+                    if (getPositionX) {
+                        SpatialAudioService.getInstance().registerActiveTrack(howlId, howlNode, getPositionX);
+                    }
+                }
 
                 // Enforce global channel ceilings and register in pool
                 const allowed = AudioPool.getInstance().registerAndCheck(voiceKey, SoundCategory.VOICE, priority, howlNode, howlId);

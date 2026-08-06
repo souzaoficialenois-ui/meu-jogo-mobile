@@ -16,8 +16,8 @@ export class BattleAudioManager {
     /**
      * Instantly executes a battle sound effect through our highly-optimized independent BattleSFXManager.
      */
-    public playSFX(key: string, volume: number): void {
-        BattleSFXManager.getInstance().playSFX(key, volume);
+    public playSFX(key: string, volume: number = 1.0, worldX?: number, getPositionX?: () => number): void {
+        BattleSFXManager.getInstance().playSFX(key, volume, worldX, getPositionX);
     }
 
     /**

@@ -1,6 +1,7 @@
 import { RankedData, RankTier, PlayerProfile } from '../types';
 import { db } from './firebase';
 import { doc, updateDoc, getDoc, setDoc, collection, query, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from './error_handler';
 
 export interface RankDefinition {
     name: string;
@@ -8,6 +9,56 @@ export interface RankDefinition {
     minPoints: number;
     subranks: string[];
 }
+
+export interface SeasonInfo {
+    id: string;
+    name: string;
+    status: 'ACTIVE' | 'COMPLETED' | 'UPCOMING';
+    startDate: number;
+    endDate: number;
+    description: string;
+    rewardsDescription?: string;
+    badgeUrl?: string;
+}
+
+export const DEFAULT_SEASONS: SeasonInfo[] = [
+    {
+        id: 'global',
+        name: 'Geral - Todos os Tempos',
+        status: 'ACTIVE',
+        startDate: new Date('2025-01-01').getTime(),
+        endDate: new Date('2030-12-31').getTime(),
+        description: 'Ranking acumulado global de todos os combatentes de Fighter Legend.',
+        rewardsDescription: 'Título Exclusivo de Lenda Eterna'
+    },
+    {
+        id: 'season_1',
+        name: 'Temporada 1: A Origem dos Guerreiros',
+        status: 'ACTIVE',
+        startDate: new Date('2026-01-01').getTime(),
+        endDate: new Date('2026-08-31').getTime(),
+        description: 'A primeira temporada oficial de batalhas ranqueadas em Fighter Legend.',
+        rewardsDescription: 'Troféu Ouro + 500 Cristais + Título "Origem Divina"'
+    },
+    {
+        id: 'season_2',
+        name: 'Temporada 2: Torneio do Poder',
+        status: 'UPCOMING',
+        startDate: new Date('2026-09-01').getTime(),
+        endDate: new Date('2026-12-31').getTime(),
+        description: 'Desafie os lutadores mais fortes de todos os universos na segunda temporada.',
+        rewardsDescription: 'Aura Exclusiva do Instinto + 1000 Cristais + Título "Deus da Arena"'
+    },
+    {
+        id: 'season_3',
+        name: 'Temporada 3: Conflito Divino',
+        status: 'UPCOMING',
+        startDate: new Date('2027-01-01').getTime(),
+        endDate: new Date('2027-04-30').getTime(),
+        description: 'A batalha final entre guerreiros e entidades divinas.',
+        rewardsDescription: 'Personagem Exclusivo + 1500 Cristais + Título "Anjo Supremo"'
+    }
+];
 
 export const RANKS: RankDefinition[] = [
     { name: 'Aprendiz', tier: 'APPRENTICE', minPoints: 0, subranks: ['V', 'IV', 'III', 'II', 'I'] },
@@ -79,10 +130,29 @@ export class RankService {
         return change;
     }
 
-    public static async updateUserRank(userId: string, pointsChange: number, isWinner: boolean, characterId?: string) {
+    public static async getSeasons(): Promise<SeasonInfo[]> {
+        try {
+            const q = collection(db, 'seasons');
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+                const firestoreSeasons = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as SeasonInfo));
+                // Ensure DEFAULT_SEASONS are included if missing
+                const existingIds = new Set(firestoreSeasons.map(s => s.id));
+                const missingDefaults = DEFAULT_SEASONS.filter(s => !existingIds.has(s.id));
+                return [...firestoreSeasons, ...missingDefaults];
+            }
+            return DEFAULT_SEASONS;
+        } catch (error) {
+            console.warn("Could not load seasons from Firestore, returning defaults:", error);
+            return DEFAULT_SEASONS;
+        }
+    }
+
+    public static async updateUserRank(userId: string, pointsChange: number, isWinner: boolean, characterId?: string, seasonId: string = 'season_1') {
         try {
             const userRef = doc(db, 'users', userId);
             const rankRef = doc(db, 'rankings', userId);
+            const seasonRankRef = doc(db, 'seasons', seasonId, 'rankings', userId);
             const userSnap = await getDoc(userRef);
             
             if (!userSnap.exists()) return;
@@ -120,8 +190,7 @@ export class RankService {
                 losses: newLosses
             });
 
-            // Update global ranking entry
-            await setDoc(rankRef, {
+            const rankData = {
                 userId,
                 name: userData.name,
                 avatarId: userData.avatarId,
@@ -130,19 +199,34 @@ export class RankService {
                 tier: newRankInfo.tier,
                 winRate: newWinRate,
                 topCharacterId: updatedRanked.topCharacterId,
-                lastUpdated: Date.now()
-            }, { merge: true });
+                lastUpdated: Date.now(),
+                seasonId,
+                wins: newWins,
+                losses: newLosses,
+                winStreak: newWinStreak
+            };
+
+            // Update global ranking entry
+            await setDoc(rankRef, rankData, { merge: true });
+
+            // Update season-specific ranking entry if applicable
+            if (seasonId && seasonId !== 'global') {
+                await setDoc(seasonRankRef, rankData, { merge: true });
+            }
 
             return updatedRanked;
         } catch (error) {
-            console.error("Failed to update user rank:", error);
-            throw error;
+            handleFirestoreError(error, OperationType.WRITE, `users/${userId}/rankings`);
         }
     }
 
-    public static async getGlobalLeaderboard(limitCount: number = 100) {
+    public static async getGlobalLeaderboard(limitCount: number = 100, seasonId: string = 'global') {
         try {
-            const q = query(collection(db, 'rankings'), orderBy('points', 'desc'), limit(limitCount));
+            const colRef = (seasonId === 'global' || seasonId === 'all')
+                ? collection(db, 'rankings')
+                : collection(db, 'seasons', seasonId, 'rankings');
+
+            const q = query(colRef, orderBy('points', 'desc'), limit(limitCount));
             const querySnapshot = await getDocs(q);
             return querySnapshot.docs.map(doc => doc.data());
         } catch (error) {
@@ -151,13 +235,22 @@ export class RankService {
         }
     }
 
-    public static listenToLeaderboard(callback: (data: any[]) => void, limitCount: number = 100) {
-        const q = query(collection(db, 'rankings'), orderBy('points', 'desc'), limit(limitCount));
+    public static listenToLeaderboard(callback: (data: any[]) => void, limitCount: number = 100, seasonId: string = 'global') {
+        const colPath = (seasonId === 'global' || seasonId === 'all')
+            ? 'rankings'
+            : `seasons/${seasonId}/rankings`;
+
+        const colRef = (seasonId === 'global' || seasonId === 'all')
+            ? collection(db, 'rankings')
+            : collection(db, 'seasons', seasonId, 'rankings');
+
+        const q = query(colRef, orderBy('points', 'desc'), limit(limitCount));
+        
         return onSnapshot(q, (snapshot) => {
             const data = snapshot.docs.map(doc => doc.data());
             callback(data);
         }, (error) => {
-            console.error("Leaderboard listener error:", error);
+            handleFirestoreError(error, OperationType.LIST, colPath);
         });
     }
 
@@ -183,3 +276,4 @@ export class RankService {
         };
     }
 }
+

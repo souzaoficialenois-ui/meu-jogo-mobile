@@ -268,11 +268,11 @@ export const CreditsScreen: React.FC = () => {
               <div className="w-full flex flex-col items-center">
                 <div className="relative w-32 h-32 md:w-56 md:h-56 rounded-[2.5rem] border-2 border-white/5 overflow-hidden mb-10 group-hover:border-orange-500/40 transition-all duration-700 shadow-2xl">
                   <img 
-                    src={item.avatarUrl || "/Assets/UI/avatar_placeholder.png"} 
+                    src={item.avatarUrl || "/Assets/avatar/retrato/1.png"} 
                     alt={item.name} 
                     className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
                     onError={(e) => {
-                      e.currentTarget.src = "/Assets/UI/avatar_placeholder.png";
+                      e.currentTarget.src = "/Assets/avatar/retrato/1.png";
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-orange-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />

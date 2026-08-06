@@ -16,6 +16,42 @@ export class TouchInputManager {
   public activeGamepadName: string = '';
   private lastPauseTriggerTime: number = 0;
 
+  public gamepadBindings: Record<string, number> = {
+    left: 14,
+    right: 15,
+    jump: 0,
+    block: 13,
+    dash: 4,
+    light: 2,
+    medium: 3,
+    heavy: 1,
+    special: 5,
+    charge: 6,
+    ultimate: 7,
+    tag: 8,
+    assist1: 10,
+    assist2: 11,
+    vanish: 9,
+    transform: 16,
+    dragonRush: 12
+  };
+
+  public loadSettings() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem("dd2d_settings");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.gamepadBindings) {
+            this.gamepadBindings = { ...this.gamepadBindings, ...parsed.gamepadBindings };
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
   // New properties for Player 1 and Player 2 data:
   public p1KeyboardTouchState: InputState = this.createDefaultState();
   public p2KeyboardTouchState: InputState = this.createDefaultState();
@@ -219,87 +255,88 @@ export class TouchInputManager {
   }
 
   private applyGamepadStateToPlayer(gp: Gamepad, playerNo: 1 | 2) {
+    this.loadSettings();
     const current = playerNo === 1 ? this.p1Current : this.p2Current;
 
     const btns = gp.buttons;
     const axes = gp.axes;
     const threshold = 0.3;
 
-    // 1. Directions - Mapping Left Stick & D-pad index (btns 12: Up, 13: Down, 14: Left, 15: Right)
-    const dpadUp = btns[12] && btns[12].pressed;
-    const dpadDown = btns[13] && btns[13].pressed;
-    const dpadLeft = btns[14] && btns[14].pressed;
-    const dpadRight = btns[15] && btns[15].pressed;
+    const isPressed = (btnIdx: number | undefined): boolean => {
+      if (btnIdx === undefined || btnIdx === null || btnIdx < 0) return false;
+      return !!(btns[btnIdx] && btns[btnIdx].pressed);
+    };
 
+    const isBoundPressed = (action: string, defaultIndex: number): boolean => {
+      const idx = this.gamepadBindings[action] !== undefined ? this.gamepadBindings[action] : defaultIndex;
+      return isPressed(idx);
+    };
+
+    // 1. Directions - Mapping Left Stick & D-pad index
     const stickLeft = axes[0] !== undefined && axes[0] < -threshold;
     const stickRight = axes[0] !== undefined && axes[0] > threshold;
     const stickDown = axes[1] !== undefined && axes[1] > threshold;
     const stickUp = axes[1] !== undefined && axes[1] < -threshold;
 
-    const gpLeft = dpadLeft || stickLeft;
-    const gpRight = dpadRight || stickRight;
-    const gpDown = dpadDown || stickDown;
-    const gpUp = dpadUp || stickUp;
+    const gpLeft = stickLeft || isBoundPressed("left", 14);
+    const gpRight = stickRight || isBoundPressed("right", 15);
+    const gpDown = stickDown || isBoundPressed("block", 13) || isPressed(13);
+    const gpUp = stickUp || isPressed(12);
 
     if (gpLeft) current.left = true;
     if (gpRight) current.right = true;
     if (gpDown) current.down = true;
 
-    // 2. Core Face Buttons - Mapping standard Switch/Xbox controllers
-    const btnCross = btns[0] && btns[0].pressed;    // A (Xbox) / Cross (PlayStation)
-    const btnCircle = btns[1] && btns[1].pressed;   // B (Xbox) / Circle (PlayStation)
-    const btnSquare = btns[2] && btns[2].pressed;   // X (Xbox) / Square (PlayStation)
-    const btnTriangle = btns[3] && btns[3].pressed; // Y (Xbox) / Triangle (PlayStation)
-
-    if (gpUp || btnCross) {
+    // 2. Jump
+    if (gpUp || isBoundPressed("jump", 0)) {
       current.jump = true;
       current.up = true;
     }
-    if (btnSquare) {
+
+    // 3. Combat Attacks & Specials
+    if (isBoundPressed("light", 2)) {
       current.light = true;
       current.attack = true;
     }
-    if (btnTriangle) {
+    if (isBoundPressed("medium", 3)) {
       current.medium = true;
     }
-    if (btnCircle) {
+    if (isBoundPressed("heavy", 1)) {
       current.heavy = true;
     }
-
-    // 3. Shoulder Bumpers & Triggers
-    const btnLB = btns[4] && btns[4].pressed; // L1 / LB (Dash)
-    const btnRB = btns[5] && btns[5].pressed; // R1 / RB (Special / Ki Blast)
-    const btnLT = btns[6] && btns[6].pressed; // L2 / LT (Charge Ki)
-    const btnRT = btns[7] && btns[7].pressed; // R2 / RT (Ultimate)
-
-    if (btnLB) current.dash = true;
-    if (btnRB) current.special = true;
-    if (btnLT) current.charge = true;
-    if (btnRT) current.ultimate = true;
-
-    // 4. L3 / R3 and Select
-    const btnSelect = btns[8] && btns[8].pressed;  // Share / back / select
-    const btnStart = btns[9] && btns[9].pressed;   // Options / start
-    const btnL3 = btns[10] && btns[10].pressed;    // Left Click
-    const btnR3 = btns[11] && btns[11].pressed;    // Right Click
-
-    if (btnL3) current.assist1 = true;
-    if (btnR3) current.assist2 = true;
-    if (btnSelect) current.tag = true;
-
-    // 5. Special Combos
-    if (btnLT && btnRT) {
-      current.dragonRush = true;
+    if (isBoundPressed("special", 5)) {
+      current.special = true;
     }
-    if (btnLB && btnRB) {
+    if (isBoundPressed("dash", 4)) {
+      current.dash = true;
+    }
+    if (isBoundPressed("charge", 6)) {
+      current.charge = true;
+    }
+    if (isBoundPressed("ultimate", 7)) {
+      current.ultimate = true;
+    }
+    if (isBoundPressed("tag", 8)) {
+      current.tag = true;
+    }
+    if (isBoundPressed("assist1", 10)) {
+      current.assist1 = true;
+    }
+    if (isBoundPressed("assist2", 11)) {
+      current.assist2 = true;
+    }
+    if (isBoundPressed("vanish", 9) || (isPressed(4) && isPressed(5))) {
       current.vanish = true;
     }
-    if (btnLT && btnLB) {
+    if (isBoundPressed("dragonRush", 12) || (isPressed(6) && isPressed(7))) {
+      current.dragonRush = true;
+    }
+    if (isBoundPressed("transform", 16) || (isPressed(6) && isPressed(4))) {
       current.transform = true;
     }
 
-    // Start button pausing (P1 or P2 can trigger pause in local versus)
-    if (btnStart) {
+    // 4. Start button pausing
+    if (isPressed(9)) {
       const now = performance.now();
       if (!this.lastPauseTriggerTime || (now - this.lastPauseTriggerTime > 350)) {
         this.lastPauseTriggerTime = now;

@@ -42,7 +42,7 @@ export class PlayerDatabase {
             weaponStats: {
                 weaponName: 'INP9',
                 kills: 8229,
-                imageUrl: '/Assets/UI/avatar_placeholder.png'
+                imageUrl: '/Assets/avatar/retrato/1.png'
             }
         };
 
@@ -70,6 +70,32 @@ export class PlayerDatabase {
         if (profile) {
             if (win) profile.wins++;
             else profile.losses++;
+            this.saveProfile(profile);
+        }
+    }
+
+    public static updateCharacterWinLoss(characterIds: string[], win: boolean) {
+        const profile = this.loadProfile();
+        if (profile) {
+            if (win) profile.wins++;
+            else profile.losses++;
+
+            const stats = profile.characterStats || {};
+            const now = Date.now();
+            characterIds.forEach(id => {
+                if (!id) return;
+                const current = stats[id] || { wins: 0, losses: 0, matches: 0 };
+                const newWins = current.wins + (win ? 1 : 0);
+                const newLosses = current.losses + (win ? 0 : 1);
+                stats[id] = {
+                    ...current,
+                    wins: newWins,
+                    losses: newLosses,
+                    matches: (current.matches || (current.wins + current.losses)) + 1,
+                    lastUsedTimestamp: now
+                };
+            });
+            profile.characterStats = stats;
             this.saveProfile(profile);
         }
     }

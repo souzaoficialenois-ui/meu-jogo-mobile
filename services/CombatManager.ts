@@ -8,7 +8,44 @@ import { MAX_GUARD, WORLD_HEIGHT, GRAVITY, CAM_MAX_ZOOM, SPAWN_CENTER_OFFSET } f
 import { MAX_KI, KI_GAIN_ON_DAMAGE } from '../constants';
 import { AudioManager } from './AudioManager';
 import { EventSystem } from './EventSystem';
+import { MoveManager } from './MoveManager';
+import { AnimationQueueManager } from './AnimationQueueManager';
+import { InputBufferManager } from './InputBufferManager';
+
 export class CombatManager {
+  /**
+   * Calculates absolute damage relative to opponent max HP.
+   * - SPECIAL: 15% of max HP total (e.g. phasePercent 15)
+   * - ULTIMATE: 40% of max HP total (e.g. phasePercent 15, 25)
+   * - COMBINED_ULTIMATE: 60% of max HP total (e.g. phasePercent 15, 25, 20)
+   */
+  public static getDamageByPercentage(
+    defender: Player,
+    category: 'SPECIAL' | 'ULTIMATE' | 'COMBINED_ULTIMATE',
+    phasePercent?: number,
+    frameCount: number = 1,
+    attacker?: Player
+  ): number {
+    const maxHp = defender?.maxHp || 1500;
+    const frames = Math.max(1, frameCount);
+    let baseDmg = 0;
+    if (phasePercent !== undefined) {
+      baseDmg = (maxHp * (phasePercent / 100)) / frames;
+    } else {
+      let totalPercent = 0.15;
+      if (category === 'SPECIAL') totalPercent = 0.15;
+      else if (category === 'ULTIMATE') totalPercent = 0.40;
+      else if (category === 'COMBINED_ULTIMATE') totalPercent = 0.60;
+      baseDmg = (maxHp * totalPercent) / frames;
+    }
+
+    if (attacker && attacker.attackMult) {
+      baseDmg *= attacker.attackMult;
+    }
+
+    return baseDmg;
+  }
+
   public static handleCombatInputs(engine: GameEngine, p: Player, input: InputState): boolean {
     if (p.landingDelayTimer > 0) return false;
     if (p.airComboLockout && !p.isGrounded) return false;
@@ -23,11 +60,14 @@ export class CombatManager {
       return false;
 
     const prevInput = p === engine.player1 ? engine.prevP1Input : engine.prevP2Input;
+    const playerNum = p === engine.player1 ? 1 : 2;
+    const bufferMgr = InputBufferManager.getInstance();
 
     engine.tryAssist(p, input.assist1, input.assist2);
 
     const transformPressed =
-      input.transform && (!prevInput || !prevInput.transform);
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, 'transform') ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, 'fusion');
     if (transformPressed) {
       let nextTransformId: string | undefined = undefined;
       let isDetransform = false;
@@ -193,13 +233,13 @@ export class CombatManager {
     }
 
     const ultimatePressed =
-      input.ultimate && (!prevInput || !prevInput.ultimate);
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, 'ultimate');
     const ultimate2Pressed =
-      input.ultimate2 && (!prevInput || !prevInput.ultimate2);
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, 'ultimate2');
     const ultimate3Pressed =
-      input.ultimate3 && (!prevInput || !prevInput.ultimate3);
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, 'ultimate3');
     const ultimate4Pressed =
-      input.ultimate4 && (!prevInput || !prevInput.ultimate4);
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, 'ultimate4');
 
     // Check if activating a Combined Ultimate (Ultimates combinados) which costs 5 bars (500 Ki)
     const isCombUlt = ultimate3Pressed && (p.data.id === "goku_black_rose" || p.data.id === "goku_base_swl_removed" || p.data.id === "goku_base_swl" || p.data.id === "goku_base" || p.data.id === "kuririn");
@@ -253,6 +293,15 @@ export class CombatManager {
       p.ki -= requiredKi;
       p.state = PlayerState.ULTIMATE;
 
+      const isP1Ult = p === engine.player1 || engine.p1Team.includes(p);
+      if (isP1Ult) {
+        engine.matchStats.p1.ultimatesUsed = (engine.matchStats.p1.ultimatesUsed || 0) + 1;
+        engine.matchStats.p1.specialAttacksUsed = (engine.matchStats.p1.specialAttacksUsed || 0) + 1;
+      } else {
+        engine.matchStats.p2.ultimatesUsed = (engine.matchStats.p2.ultimatesUsed || 0) + 1;
+        engine.matchStats.p2.specialAttacksUsed = (engine.matchStats.p2.specialAttacksUsed || 0) + 1;
+      }
+
       // Track mission progress for human player
       if (p === engine.player1 && !engine.isP1Bot) {
         EventSystem.getInstance().publish("MISSION_ACTION", {
@@ -265,6 +314,12 @@ export class CombatManager {
       p.ultTimer = 0;
       p.ultType = 1;
       p["ultHitApplied"] = false;
+
+      // Use phasedMoves for Goku MUI if available
+      if (p.data.id === 'goku_mui' && p.data.phasedMoves?.['ULTIMATE']) {
+        MoveManager.getInstance().startMove(p, 'ULTIMATE');
+        return true;
+      }
 
       if (ultimate3Pressed && (p.data.id === "goku_black_rose" || p.data.id === "goku_base_swl_removed" || p.data.id === "goku_base_swl" || p.data.id === "goku_base" || p.data.id === "kuririn")) {
         p.ultType = 3;
@@ -312,7 +367,7 @@ export class CombatManager {
       return true;
     }
 
-    const tagPressed = input.tag && (!prevInput || !prevInput.tag);
+    const tagPressed = bufferMgr.isActionTriggered(playerNum, input, prevInput, 'tag');
     if (tagPressed) {
       // Normal tag if mostly idle or blocking
       if (
@@ -364,97 +419,69 @@ export class CombatManager {
     const canAttack = (isNeutral && (p.isGrounded || !p.airComboUsed)) || isRecovering || magicSeriesAllowed;
 
     const lightPressed =
-      ((input.light || input.attack) &&
-        (!prevInput || (!prevInput.light && !prevInput.attack))) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "light") ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "attack") ||
       p.queuedAttack === "LIGHT";
     const mediumPressed =
-      (input.medium && (!prevInput || !prevInput.medium)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "medium") ||
       p.queuedAttack === "MEDIUM";
     const heavyPressed =
-      (input.heavy && (!prevInput || !prevInput.heavy)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "heavy") ||
       p.queuedAttack === "HEAVY";
     const kiblastPressed =
-      (input.kiblast && (!prevInput || !prevInput.kiblast)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "kiblast") ||
       p.queuedAttack === "KI_BLAST";
     const specialPressed =
-      (input.special && (!prevInput || !prevInput.special)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special") ||
+      bufferMgr.checkAndConsume(playerNum, "DOWN_SPECIAL") ||
+      bufferMgr.checkAndConsume(playerNum, "MOTION_SPECIAL_RIGHT") ||
+      bufferMgr.checkAndConsume(playerNum, "MOTION_SPECIAL_LEFT") ||
       p.queuedAttack === "SPECIAL";
     const special2Pressed =
-      (input.special2 && (!prevInput || !prevInput.special2)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special2") ||
       p.queuedAttack === "SPECIAL_2";
     const special3Pressed =
-      (input.special3 && (!prevInput || !prevInput.special3)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special3") ||
       p.queuedAttack === "SPECIAL_3";
     const special4Pressed =
-      (input.special4 && (!prevInput || !prevInput.special4)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special4") ||
       p.queuedAttack === "SPECIAL_4";
     const special5Pressed =
-      (input.special5 && (!prevInput || !prevInput.special5)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special5") ||
       p.queuedAttack === "SPECIAL_5";
     const special6Pressed =
-      (input.special6 && (!prevInput || !prevInput.special6)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special6") ||
       p.queuedAttack === "SPECIAL_6";
     const special7Pressed =
-      (input.special7 && (!prevInput || !prevInput.special7)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special7") ||
       p.queuedAttack === "SPECIAL_7";
     const special8Pressed =
-      (input.special8 && (!prevInput || !prevInput.special8)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special8") ||
       p.queuedAttack === "SPECIAL_8";
     const special9Pressed =
-      (input.special9 && (!prevInput || !prevInput.special9)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special9") ||
       p.queuedAttack === "SPECIAL_9";
     const special10Pressed =
-      (input.special10 && (!prevInput || !prevInput.special10)) ||
+      bufferMgr.isActionTriggered(playerNum, input, prevInput, "special10") ||
       p.queuedAttack === "SPECIAL_10";
 
-    // Super Dash Auto-Activation during combo when opponent is out of reach
-    const opp = p === engine.player1 ? engine.player2 : engine.player1;
-    const dx = opp.x - p.x;
-    const dy = opp.y - p.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const isComboSequence = p.comboStep > 0 || p.comboWindow > 0 || isAttacking;
+    // Super Dash Auto-Activation during combo:
+    // Rule: Super Dash in combo can ONLY be applied when the character has executed ALL phases of the attack
+    // (e.g., stand_light_1 [step 0], stand_light_2 [step 1], and stand_light_3 [step 2]).
+    // After phase 3 is completed (p.comboStep >= 2) and the player attempts to execute an attack, activate Super Dash!
+    const isBasicCombo = p.comboType === "LIGHT" || p.comboType === "MEDIUM" || p.comboType === "HEAVY";
+    const allComboPhasesExecuted = isBasicCombo ? (p.comboStep >= 2 || (p.comboType === "HEAVY" && p.hasHit)) : (p.comboStep >= 2);
+    const attackAttempted = lightPressed || mediumPressed || heavyPressed || kiblastPressed;
 
     if (
-      isComboSequence &&
-      dist > 120 &&
+      allComboPhasesExecuted &&
+      attackAttempted &&
       !p.autoDashUsed &&
-      !engine.cannotAct(p) &&
-      (lightPressed || mediumPressed || heavyPressed)
+      !engine.cannotAct(p)
     ) {
-      p.state = PlayerState.SUPER_DASH;
-      p.superDashActive = true;
-      p.superDashPhase = 1;
-      p.autoDashUsed = true;
-      p.isGrounded = false;
-      p.velocity.x = 0;
-      p.velocity.y = -5;
-      p.attackTimer = 15; // Phase 1 startup duration
-      p.invincibleTimer = 0; // Phase 1: Vulnerable (no invincibility)
-      p.rotation = 0; // Phase 1: No rotation applied
-      p.comboWindow = 0;
-      p.ataque = true;
-      p.comboType = "SUPER_DASH";
-      p.hasHit = false;
-      p.jumpsUsed = 0;
-      p.airDashUsed = false;
-      p.airComboUsed = false;
-      p.quickDashTimer = 0;
-      p.queuedAttack = null;
-
-      engine.particleManager.spawn(
-        "AURA",
-        p.x + p.width / 2,
-        p.y + p.height / 2,
-        10,
-        p.data.color || "#ffffff",
-        { size: 5, speed: 5 },
-      );
-
-      try {
-        AudioManager.getInstance().playSFX("dash");
-      } catch (e) {}
-
-      return true;
+      if (engine.executeSuperDash(p)) {
+        return true;
+      }
     }
 
     if (canAttack) {
@@ -572,6 +599,22 @@ export class CombatManager {
       if (p.hasHit && input.jump) {
         return false; // Yield to handleMovementInputs to execute a Jump Cancel
       }
+      // Enqueue attack inputs while busy attacking to ensure sequential execution without frame skips
+      if (special10Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_10", isCrouching);
+      else if (special9Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_9", isCrouching);
+      else if (special8Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_8", isCrouching);
+      else if (special7Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_7", isCrouching);
+      else if (special6Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_6", isCrouching);
+      else if (special5Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_5", isCrouching);
+      else if (special4Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_4", isCrouching);
+      else if (special3Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_3", isCrouching);
+      else if (special2Pressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_2", isCrouching);
+      else if (specialPressed) AnimationQueueManager.getInstance().enqueue(p, "SPECIAL", isCrouching);
+      else if (kiblastPressed) AnimationQueueManager.getInstance().enqueue(p, "KI_BLAST", isCrouching);
+      else if (heavyPressed && p.heavyCooldownTimer <= 0) AnimationQueueManager.getInstance().enqueue(p, "HEAVY", isCrouching);
+      else if (mediumPressed) AnimationQueueManager.getInstance().enqueue(p, "MEDIUM", isCrouching);
+      else if (lightPressed) AnimationQueueManager.getInstance().enqueue(p, "LIGHT", isCrouching);
+
       return true;
     }
     return false;

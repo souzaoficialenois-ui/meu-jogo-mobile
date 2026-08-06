@@ -153,7 +153,7 @@ export class LocalMultiplayerManager {
   public isLocalMultiplayerAllowed(): boolean {
     const gpCount = this.gamepads.length;
     const hasKb = this.keyboardAvailable;
-    return gpCount >= 2 || (hasKb && gpCount >= 1);
+    return hasKb || gpCount >= 2;
   }
 
   public setSide(deviceId: string, side: SideSelection) {
@@ -208,6 +208,18 @@ export class LocalMultiplayerManager {
     if (p1Device && p2Device) {
       return { p1Device, p2Device };
     }
+
+    // If keyboard is present and confirmed on either side or confirmed for shared keyboard play
+    if (this.keyboardAvailable) {
+      const kbState = this.deviceStates['keyboard'];
+      if (kbState && kbState.confirmed) {
+        return {
+          p1Device: p1Device || 'keyboard',
+          p2Device: p2Device || 'keyboard'
+        };
+      }
+    }
+
     return null;
   }
 

@@ -6,6 +6,7 @@ import { parseGIF, decompressFrames } from 'gifuct-js';
 import { CacheService } from './CacheService';
 import { resolveAnimationKey } from './AnimationResolver';
 import { AuraConfigKeyManager, DEFAULT_AURAS } from './AuraConfigKeyManager';
+import { GlowOptimizer } from './GlowOptimizer';
 
 import { FrameManager } from './FrameManager';
 import { localizeUrl } from './UrlLocalizer';
@@ -25,7 +26,7 @@ const AURA_GIFS = {
     AURA_006: "/Assets/aura/6.gif",
     // 7: Red / Dark Red spark (Sparking mode limit-burst / special powerup)
     AURA_007: "/Assets/aura/7.gif",
-    // 8-16: Additional high-fidelity auras
+    // 8-15: Additional high-fidelity auras
     AURA_008: "/Assets/aura/8.gif",
     AURA_009: "/Assets/aura/9.gif",
     AURA_010: "/Assets/aura/10.gif",
@@ -34,7 +35,6 @@ const AURA_GIFS = {
     AURA_013: "/Assets/aura/13.gif",
     AURA_014: "/Assets/aura/14.gif",
     AURA_015: "/Assets/aura/15.gif",
-    AURA_016: "/Assets/aura/16.gif",
 };
 
 export function getCharacterAuraUrl(charId: string): string {
@@ -87,8 +87,62 @@ export class AnimationManager {
         return AnimationManager.instance;
     }
 
+    public getParticleMultiplier(): number {
+        return GlowOptimizer.getInstance().getParticleMultiplier();
+    }
+
+    private getFilterString(filters?: { hueRotate?: number, saturate?: number, brightness?: number, contrast?: number }): string {
+        if (!filters) return "";
+        let str = "";
+        // Only add filters that differ from default values to minimize overhead and prevent unnecessary recalculations
+        if (filters.hueRotate !== undefined && filters.hueRotate !== 0) str += ` hue-rotate(${filters.hueRotate}deg)`;
+        if (filters.saturate !== undefined && filters.saturate !== 1) str += ` saturate(${filters.saturate})`;
+        if (filters.brightness !== undefined && filters.brightness !== 1) str += ` brightness(${filters.brightness})`;
+        if (filters.contrast !== undefined && filters.contrast !== 1) str += ` contrast(${filters.contrast})`;
+        return str.trim();
+    }
+
+    /**
+     * Transforms a color string using CSS filters by rendering it on a hidden 1x1 canvas.
+     * This ensures consistent color matching between tinted images and their associated glow effects.
+     */
+    public getTransformedColor(color: string, filters: any): string {
+        const filterStr = this.getFilterString(filters);
+        if (!filterStr || color === "transparent") return color;
+
+        const cacheKey = `color_trans_${color}_${filterStr}`;
+        if (this.tintCache.has(cacheKey)) {
+            return (this.tintCache.get(cacheKey) as any)._finalColor || color;
+        }
+
+        try {
+            const temp = document.createElement('canvas');
+            temp.width = 1; temp.height = 1;
+            const tctx = temp.getContext('2d');
+            if (!tctx) return color;
+
+            tctx.filter = filterStr;
+            tctx.fillStyle = color;
+            tctx.fillRect(0, 0, 1, 1);
+            
+            const data = tctx.getImageData(0, 0, 1, 1).data;
+            const finalColor = `rgba(${data[0]}, ${data[1]}, ${data[2]}, ${data[3] / 255})`;
+            
+            // We use a dummy canvas to store the string in the existing tintCache to avoid adding another Map
+            const dummy: any = document.createElement('canvas');
+            dummy._finalColor = finalColor;
+            this.tintCache.set(cacheKey, dummy);
+            
+            return finalColor;
+        } catch (e) {
+            console.warn("Failed to transform color:", e);
+            return color;
+        }
+    }
+
     /**
      * Obtains a cached tinted and filtered canvas of an image to prevent garbage collection spikes and FPS drops.
+     * Uses an advanced multi-pass tinting algorithm that preserves highlights and details.
      */
     public getCachedEffectImg(
         img: CanvasImageSource, 
@@ -100,7 +154,7 @@ export class AnimationManager {
     ): any {
         let filterStr = "";
         if (filters) {
-            if (filters.hueRotate) filterStr += `_h${filters.hueRotate}`;
+            if (filters.hueRotate !== undefined) filterStr += `_h${filters.hueRotate}`;
             if (filters.saturate !== undefined) filterStr += `_s${filters.saturate}`;
             if (filters.brightness !== undefined) filterStr += `_b${filters.brightness}`;
             if (filters.contrast !== undefined) filterStr += `_c${filters.contrast}`;
@@ -141,32 +195,48 @@ export class AnimationManager {
         if (tempCtx) {
             tempCtx.save();
             
-            // Apply filters to the intermediate draw if requested
-            let canvasFilter = "";
-            if (filters) {
-                if (filters.hueRotate) canvasFilter += ` hue-rotate(${filters.hueRotate}deg)`;
-                if (filters.saturate !== undefined) canvasFilter += ` saturate(${filters.saturate})`;
-                if (filters.brightness !== undefined) canvasFilter += ` brightness(${filters.brightness})`;
-                if (filters.contrast !== undefined) canvasFilter += ` contrast(${filters.contrast})`;
-            }
-
-            if (color !== "#ffffff" && color !== "white" && color) {
-                // TINTING LOGIC (Simplified version of getTintedImg logic integrated here)
-                // 1. Draw grayscale version
-                tempCtx.filter = (canvasFilter + " grayscale(100%) brightness(1.2) contrast(1.1)").trim();
+        const canvasFilter = this.getFilterString(filters);
+        
+        if (color !== "#ffffff" && color !== "white" && color && color !== "transparent") {
+                // ADVANCED HIGHLIGHT-PRESERVING TINTING
+                // 1. Draw base with grayscale and initial contrast boost
+                tempCtx.filter = "grayscale(100%) brightness(1.2) contrast(1.1)";
                 tempCtx.drawImage(img, 0, 0);
                 
-                // 2. Multiply with color
+                // 2. Multiply with the target color to inject hue into midtones/shadows
                 tempCtx.globalCompositeOperation = "multiply";
                 tempCtx.fillStyle = color;
                 tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
                 
-                // 3. Mask with original alpha
+                // 3. Add back highlights using original grayscale image (screen mode)
+                // This prevents the aura from looking "flat" or "muddy"
+                tempCtx.globalCompositeOperation = "screen";
+                tempCtx.globalAlpha = 0.45;
+                tempCtx.filter = "grayscale(100%) brightness(1.2)";
+                tempCtx.drawImage(img, 0, 0);
+                tempCtx.globalAlpha = 1.0;
+
+                // 4. Final clip with original alpha to prevent "black box" artifacts from blend modes
                 tempCtx.globalCompositeOperation = "destination-in";
                 tempCtx.filter = "none";
                 tempCtx.drawImage(img, 0, 0);
+
+                // 5. Apply the user-requested filters (hue-rotate, saturate, etc.) to the TINTED result
+                if (canvasFilter) {
+                    const postCanvas = document.createElement("canvas");
+                    postCanvas.width = tempCanvas.width;
+                    postCanvas.height = tempCanvas.height;
+                    const postCtx = postCanvas.getContext("2d");
+                    if (postCtx) {
+                        postCtx.filter = canvasFilter.trim();
+                        postCtx.drawImage(tempCanvas, 0, 0);
+                        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+                        tempCtx.globalCompositeOperation = "source-over";
+                        tempCtx.drawImage(postCanvas, 0, 0);
+                    }
+                }
             } else {
-                // ONLY FILTER LOGIC
+                // ONLY FILTER LOGIC (No tinting)
                 if (canvasFilter) tempCtx.filter = canvasFilter.trim();
                 tempCtx.drawImage(img, 0, 0);
             }
@@ -189,73 +259,68 @@ export class AnimationManager {
 
         const tempCanvas = document.createElement("canvas");
         
-        let imgW = 0;
-        let imgH = 0;
-        if (img instanceof ImageBitmap || img instanceof HTMLImageElement || img instanceof HTMLCanvasElement) {
-            imgW = img.width || width || 0;
-            imgH = img.height || height || 0;
-            if (img instanceof HTMLImageElement) {
-                imgW = img.naturalWidth || img.width || width || 0;
-                imgH = img.naturalHeight || img.height || height || 0;
-            }
-        } else {
-            imgW = width || 0;
-            imgH = height || 0;
+        let actualW = (img as any)?.width || width || 0;
+        let actualH = (img as any)?.height || height || 0;
+        if (img instanceof HTMLImageElement) {
+            actualW = img.naturalWidth || img.width || width || 0;
+            actualH = img.naturalHeight || img.height || height || 0;
         }
 
-        if (imgW <= 0 || imgH <= 0) {
+        if (!img || actualW <= 0 || actualH <= 0) {
             tempCanvas.width = 1;
             tempCanvas.height = 1;
             this.tintCache.set(fullKey, tempCanvas);
             return tempCanvas;
         }
 
-        tempCanvas.width = Number(imgW) || 120;
-        tempCanvas.height = Number(imgH) || 120;
+        tempCanvas.width = Number(actualW) || 120;
+        tempCanvas.height = Number(actualH) || 120;
         const tempCtx = tempCanvas.getContext("2d");
         
         if (tempCtx) {
-            // 1. Draw the grayscaled image onto tempCtx to serve as detailed base
-            tempCtx.save();
-            tempCtx.filter = "grayscale(100%) brightness(1.2) contrast(1.1)";
-            tempCtx.drawImage(img, 0, 0);
-            tempCtx.restore();
+            try {
+                // 1. Draw the grayscaled image onto tempCtx to serve as detailed base
+                tempCtx.save();
+                tempCtx.filter = "grayscale(100%) brightness(1.2) contrast(1.1)";
+                tempCtx.drawImage(img, 0, 0);
+                tempCtx.restore();
 
-            // 2. Create an offscreen canvas to hold the solid color masked to the image shape
-            const maskCanvas = document.createElement("canvas");
-            maskCanvas.width = tempCanvas.width;
-            maskCanvas.height = tempCanvas.height;
-            const maskCtx = maskCanvas.getContext("2d");
-            if (maskCtx) {
-                maskCtx.drawImage(img, 0, 0);
-                maskCtx.globalCompositeOperation = "source-in";
-                maskCtx.fillStyle = color;
-                maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+                // 2. Create an offscreen canvas to hold the solid color masked to the image shape
+                const maskCanvas = document.createElement("canvas");
+                maskCanvas.width = tempCanvas.width;
+                maskCanvas.height = tempCanvas.height;
+                const maskCtx = maskCanvas.getContext("2d");
+                if (maskCtx) {
+                    maskCtx.drawImage(img, 0, 0);
+                    maskCtx.globalCompositeOperation = "source-in";
+                    maskCtx.fillStyle = color;
+                    maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+                }
+
+                // 3. Draw the solid colored mask on top of the grayscaled image using "multiply"
+                tempCtx.save();
+                tempCtx.globalCompositeOperation = "multiply";
+                if (maskCanvas.width > 0 && maskCanvas.height > 0) {
+                    tempCtx.drawImage(maskCanvas, 0, 0);
+                }
+                tempCtx.restore();
+
+                // 4. Draw the grayscaled version on top using "screen" composite mode
+                tempCtx.save();
+                tempCtx.globalCompositeOperation = "screen";
+                tempCtx.globalAlpha = 0.45;
+                tempCtx.filter = "grayscale(100%) brightness(1.2)";
+                tempCtx.drawImage(img, 0, 0);
+                tempCtx.restore();
+
+                // 5. Clean up transparent background clipping
+                tempCtx.save();
+                tempCtx.globalCompositeOperation = "destination-in";
+                tempCtx.drawImage(img, 0, 0);
+                tempCtx.restore();
+            } catch (e) {
+                // Fallback for unexpected canvas draw failures
             }
-
-            // 3. Draw the solid colored mask on top of the grayscaled image using "multiply"
-            // This multiplies the color by the grayscale details, beautifully preserving shadows, midtones, and details!
-            tempCtx.save();
-            tempCtx.globalCompositeOperation = "multiply";
-            if (maskCanvas.width > 0 && maskCanvas.height > 0) {
-                tempCtx.drawImage(maskCanvas, 0, 0);
-            }
-            tempCtx.restore();
-
-            // 4. Draw the grayscaled version on top using "screen" composite mode to add back the brilliant
-            // white/bright inner core highlights and glowing details of the original sprite.
-            tempCtx.save();
-            tempCtx.globalCompositeOperation = "screen";
-            tempCtx.globalAlpha = 0.45;
-            tempCtx.filter = "grayscale(100%) brightness(1.2)";
-            tempCtx.drawImage(img, 0, 0);
-            tempCtx.restore();
-
-            // 5. Clean up transparent background clipping to fix "black boxes" in multiply/screen blend modes
-            tempCtx.save();
-            tempCtx.globalCompositeOperation = "destination-in";
-            tempCtx.drawImage(img, 0, 0);
-            tempCtx.restore();
         }
 
         this.tintCache.set(fullKey, tempCanvas);
@@ -283,26 +348,30 @@ export class AnimationManager {
         }
 
         const tempCanvas = document.createElement("canvas");
-        const w = (baseImg as any).width || width || 100;
-        const h = (baseImg as any).height || height || 100;
+        const baseW = (baseImg as any)?.naturalWidth || (baseImg as any)?.width || width || 0;
+        const baseH = (baseImg as any)?.naturalHeight || (baseImg as any)?.height || height || 0;
 
-        if (w <= 0 || h <= 0) {
+        if (!baseImg || baseW <= 0 || baseH <= 0) {
             tempCanvas.width = 1;
             tempCanvas.height = 1;
             this.filterCache.set(fullKey, tempCanvas);
             return tempCanvas;
         }
 
-        tempCanvas.width = Number(w) + 2 * padding;
-        tempCanvas.height = Number(h) + 2 * padding;
+        tempCanvas.width = Number(baseW) + 2 * padding;
+        tempCanvas.height = Number(baseH) + 2 * padding;
         const tempCtx = tempCanvas.getContext("2d");
 
         if (tempCtx) {
-            tempCtx.imageSmoothingEnabled = false;
-            if (filters.length > 0) {
-                tempCtx.filter = filters.join(" ");
+            try {
+                tempCtx.imageSmoothingEnabled = false;
+                if (filters.length > 0) {
+                    tempCtx.filter = filters.join(" ");
+                }
+                tempCtx.drawImage(baseImg, padding, padding);
+            } catch (e) {
+                // Fallback
             }
-            tempCtx.drawImage(baseImg, padding, padding);
         }
 
         this.filterCache.set(fullKey, tempCanvas);
@@ -364,9 +433,11 @@ export class AnimationManager {
                 const bitmap = await self.createImageBitmap(tempCanvas);
                 bitmaps.push(bitmap);
                 
-                // Browsers clamp delays <= 20 ms to 100 ms.
+                // GIF frame delays are in centiseconds (1/100 s). Convert to milliseconds:
                 const rawDelay = frame.delay;
-                const finalDelay = (!rawDelay || rawDelay <= 20) ? 100 : rawDelay;
+                const delayMs = (rawDelay && rawDelay > 0) ? (rawDelay < 1000 ? rawDelay * 10 : rawDelay) : 100;
+                // Browsers clamp delays < 20 ms to 100 ms.
+                const finalDelay = delayMs < 20 ? 100 : delayMs;
                 delays.push(finalDelay);
             }
             this.gifCache.set(url, bitmaps);
@@ -387,6 +458,15 @@ export class AnimationManager {
         url = this.normalizeUrl(url);
         const bitmaps = this.gifCache.get(url);
         return bitmaps ? bitmaps.length : 0;
+    }
+
+    public getGifInfo(url: string): { width: number, height: number } | null {
+        url = this.normalizeUrl(url);
+        const bitmaps = this.gifCache.get(url);
+        if (bitmaps && bitmaps.length > 0) {
+            return { width: bitmaps[0].width, height: bitmaps[0].height };
+        }
+        return null;
     }
 
     public getGifFrame(url: string, frame: number, freezeOnLastFrame?: boolean): ImageBitmap | HTMLImageElement | null {
@@ -494,7 +574,8 @@ export class AnimationManager {
         if (!character.spriteConfig || !character.spriteConfig.animations) return;
         Object.values(character.spriteConfig.animations).forEach(anim => {
             if (anim && anim.imageUrl) {
-                if (anim.isGif) {
+                const isGifAnim = anim.isGif || anim.imageUrl.toLowerCase().endsWith('.gif');
+                if (isGifAnim) {
                     this.loadGif(anim.imageUrl);
                 } else {
                     this.loadTexture(anim.imageUrl);
@@ -514,6 +595,10 @@ export class AnimationManager {
         this.loadGif(crackUrl);
     }
 
+    public clearKeyCache() {
+        this.animKeyCache.clear();
+    }
+
     public drawFrame(
         ctx: CanvasRenderingContext2D,
         anim: AnimationFrameData,
@@ -527,19 +612,22 @@ export class AnimationManager {
         centerAlignY: boolean = false,
         tintColor?: string
     ) {
-        if (!anim.imageUrl) return;
+        if (!anim || !anim.imageUrl) return;
 
         let img: CanvasImageSource;
         let srcX = 0;
         let srcY = 0;
         let frameWidth = anim.frameWidth;
         let frameHeight = anim.frameHeight;
-        let cacheKey = anim.imageUrl;
+        const normalizedUrl = this.normalizeUrl(anim.imageUrl);
+        let cacheKey = normalizedUrl;
 
-        if (anim.isGif) {
-            const bitmaps = this.gifCache.get(anim.imageUrl);
+        const isGifAnim = anim.isGif || (anim.imageUrl && anim.imageUrl.toLowerCase().endsWith(".gif"));
+
+        if (isGifAnim) {
+            const bitmaps = this.gifCache.get(normalizedUrl);
             if (!bitmaps || bitmaps.length === 0) {
-                this.loadGif(anim.imageUrl);
+                this.loadGif(normalizedUrl);
                 return; // Still loading
             }
             
@@ -550,7 +638,7 @@ export class AnimationManager {
                 ? frame % bitmaps.length 
                 : Math.min(frame, bitmaps.length - 1);
             
-            cacheKey = `${anim.imageUrl}_${frameIndex}`;
+            cacheKey = `${normalizedUrl}_${frameIndex}`;
             
             // Failsafe for transformations/intros to absolutely stop it from looping
             if (anim.loop === false && frame >= bitmaps.length - 1) {
@@ -565,7 +653,7 @@ export class AnimationManager {
             if (anim.frameWidth === 0) anim.frameWidth = frameWidth;
             if (anim.frameHeight === 0) anim.frameHeight = frameHeight;
         } else {
-            const tex = this.loadTexture(anim.imageUrl);
+            const tex = this.loadTexture(normalizedUrl);
             if (!tex.complete || tex.naturalWidth === 0) return;
             img = tex;
             const frameIndex = (anim.loop !== false) 
@@ -647,6 +735,20 @@ export class AnimationManager {
         ctx.restore();
     }
 
+    private getGlowQuality(): 'DISABLED' | 'NORMAL' | 'ULTRA' {
+        try {
+            const saved = localStorage.getItem("dd2d_settings");
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed.auraGlowQuality) return parsed.auraGlowQuality;
+                if (parsed.glowQuality) return parsed.glowQuality;
+                if (parsed.graphicsQuality === 'VERY_LOW' || parsed.graphicsQuality === 'LOW') return 'DISABLED';
+                if (parsed.graphicsQuality === 'ULTRA') return 'ULTRA';
+            }
+        } catch (e) {}
+        return 'NORMAL';
+    }
+
     public drawPlayerAura(
         ctx: CanvasRenderingContext2D,
         character: CharacterData,
@@ -668,12 +770,22 @@ export class AnimationManager {
         const animData = character.spriteConfig?.animations[state];
         const hasAnimAuraConfigKey = animData && (animData as any).auraConfigKey;
         
+        const stateStr = String(state).toLowerCase();
+        const isChargingOrAuraState = 
+            state === PlayerState.CHARGING ||
+            state === PlayerState.CHARGE_START ||
+            state === PlayerState.CHARGE_END ||
+            stateStr.includes("charge") ||
+            stateStr.includes("carregando") ||
+            stateStr.includes("sparking") ||
+            stateStr.includes("aura") ||
+            stateStr.includes("transform") ||
+            stateStr.includes("power_up");
+
         const isAuraEligibleState = 
             !!forceAuraConfigKey ||
-            (state === PlayerState.CHARGING ||
-             state === PlayerState.CHARGE_START ||
-             state === PlayerState.CHARGE_END) ||
-            (actualHScale > 0) ||
+            isChargingOrAuraState ||
+            sparkingActive ||
             !!hasAnimAuraConfigKey;
 
         if (!isAuraEligibleState) return;
@@ -719,25 +831,56 @@ export class AnimationManager {
             auraUrlKey = Object.keys(AURA_GIFS).find(k => (AURA_GIFS as any)[k] === defaultUrl) || "AURA_001";
         }
 
-        if (!auraConfig && auraUrlKey) auraConfig = auraMgr.getAuraConfig(auraUrlKey);
+        if (!auraConfig && auraUrlKey) {
+            // Priority: look for specific configured key first, then by animation, then fallback to base URL key
+            auraConfig = auraMgr.getAuraConfigForAnimation(character.id, state) || 
+                         auraMgr.getAuraConfig(auraUrlKey);
+        }
 
         let auraUrl = sparkingActive ? AURA_GIFS.AURA_007 : getCharacterAuraUrl(character.id);
 
         if (auraConfig) {
-            let baseId = auraConfig.baseAuraId;
-            if (baseId) {
-                const match = baseId.match(/AURA_\d{3}/i) || baseId.match(/CHAVE_AURA_(\d{3})/i);
-                if (match) baseId = match[1] ? `AURA_${match[1]}` : match[0].toUpperCase();
-            }
+            const rawSprite = (auraConfig as any).auraSprite || (auraConfig as any).auraAnimation || (auraConfig as any).auraUrl;
+            const rawBaseId = auraConfig.baseAuraId;
 
-            const AURA_MAP: any = {
-                BASE_LIGHT: "AURA_001", SSJ: "AURA_002", BLUE: "AURA_003", ROSE: "AURA_004", UI: "AURA_005", PURPLE: "AURA_006", SURGE_RED: "AURA_007"
-            };
-            const mappedId = AURA_MAP[baseId || ""] || baseId;
-            if (DEFAULT_AURAS[mappedId as keyof typeof DEFAULT_AURAS]) {
-                auraUrl = DEFAULT_AURAS[mappedId as keyof typeof DEFAULT_AURAS];
-            } else if (baseId && (baseId.startsWith("http"))) {
-                auraUrl = baseId;
+            // 1. Direct file path or URL in sprite/animation/url properties
+            if (rawSprite && (typeof rawSprite === "string") && (rawSprite.startsWith("http") || rawSprite.startsWith("/") || rawSprite.endsWith(".gif"))) {
+                auraUrl = rawSprite;
+            }
+            // 2. Exact match key in DEFAULT_AURAS for rawSprite
+            else if (rawSprite && DEFAULT_AURAS[rawSprite as keyof typeof DEFAULT_AURAS]) {
+                auraUrl = DEFAULT_AURAS[rawSprite as keyof typeof DEFAULT_AURAS];
+            }
+            // 3. Direct file path or URL in baseAuraId
+            else if (rawBaseId && (typeof rawBaseId === "string") && (rawBaseId.startsWith("http") || rawBaseId.startsWith("/") || rawBaseId.endsWith(".gif"))) {
+                auraUrl = rawBaseId;
+            }
+            // 4. Exact match key in DEFAULT_AURAS for baseAuraId
+            else if (rawBaseId && DEFAULT_AURAS[rawBaseId as keyof typeof DEFAULT_AURAS]) {
+                auraUrl = DEFAULT_AURAS[rawBaseId as keyof typeof DEFAULT_AURAS];
+            }
+            // 5. Fallback mapping for standard alias names or numeric aura keys (e.g. AURA_008, SSJ, BLUE, etc.)
+            else if (rawBaseId || rawSprite) {
+                const targetKey = (rawBaseId || rawSprite || "").trim();
+                const AURA_MAP: Record<string, string> = {
+                    BASE_LIGHT: "AURA_001", SSJ: "AURA_002", BLUE: "AURA_003", ROSE: "AURA_004", UI: "AURA_005", PURPLE: "AURA_006", SURGE_RED: "AURA_007"
+                };
+                let mappedKey = AURA_MAP[targetKey] || targetKey;
+                // DO NOT perform digit matching if targetKey is a CHAVE_ key!
+                if (!mappedKey.startsWith("CHAVE_")) {
+                    const numMatch = mappedKey.match(/\d+/);
+                    if (numMatch) {
+                        const paddedKey = `AURA_${String(parseInt(numMatch[0], 10)).padStart(3, '0')}`;
+                        if (DEFAULT_AURAS[paddedKey as keyof typeof DEFAULT_AURAS]) {
+                            mappedKey = paddedKey;
+                        }
+                    }
+                }
+                if (DEFAULT_AURAS[mappedKey as keyof typeof DEFAULT_AURAS]) {
+                    auraUrl = DEFAULT_AURAS[mappedKey as keyof typeof DEFAULT_AURAS];
+                } else if (targetKey.startsWith("http") || targetKey.startsWith("/") || targetKey.endsWith(".gif")) {
+                    auraUrl = targetKey;
+                }
             }
         }
 
@@ -751,35 +894,149 @@ export class AnimationManager {
         let auraImg = this.getGifFrame(auraUrl, currentAuraFrame);
         
         if (auraImg) {
-            ctx.save();
-            ctx.globalCompositeOperation = 'screen';
-            
             const configScaleX = auraConfig && (auraConfig as any).auraScaleX !== undefined ? Number((auraConfig as any).auraScaleX) : 1.0;
             const configScaleY = auraConfig && (auraConfig as any).auraScaleY !== undefined ? Number((auraConfig as any).auraScaleY) : 1.0;
 
-            const auraW = width * 1.35 * actualWScale * configScaleX;
-            const auraH = height * 1.35 * actualHScale * configScaleY;
+            const baseOpacity = auraConfig?.auraOpacity !== undefined ? Number(auraConfig.auraOpacity) : 0.85;
+
+            // Clamped scales & smooth transition easing curve (sine ease)
+            const hScaleClamped = Math.min(1.3, Math.max(0, actualHScale));
+            const wScaleClamped = Math.min(1.3, Math.max(0, actualWScale));
+            
+            // Smooth transition progress (0.0 to 1.0)
+            const scaleProgress = Math.min(1.0, hScaleClamped);
+            const transitionEase = Math.sin((scaleProgress * Math.PI) / 2);
+
+            // Dynamic Ki Energy Pulse (vibrant high-frequency vibration during charging/sparking)
+            const now = Date.now();
+            const pulseFreq = sparkingActive ? 45 : 65;
+            const pulseAmt = (Math.sin(now / pulseFreq) * 0.035 + Math.cos(now / (pulseFreq * 0.75)) * 0.02) * transitionEase;
+            const pulseH = 1.0 + (transitionEase > 0.2 ? pulseAmt : 0);
+            const pulseW = 1.0 + (transitionEase > 0.2 ? (pulseAmt * 0.75) : 0);
+
+            // Upward dissipation / ignition surge float offset
+            const floatUp = (1.0 - transitionEase) * 18 * (scaleProgress < 1.0 ? 1 : 0);
+
+            const auraW = width * 1.35 * wScaleClamped * configScaleX * pulseW;
+            const auraH = height * 1.35 * hScaleClamped * configScaleY * pulseH;
             let auraX = x + width / 2 - auraW / 2;
-            let auraY = (y + height) - auraH;
+            let auraY = (y + height) - auraH - floatUp;
 
             if (auraConfig) {
                 const offsetO_X = Number(auraConfig.auraOffsetX || 0);
                 const offsetO_Y = Number(auraConfig.auraOffsetY || 0);
                 auraX += facingRight ? offsetO_X : -offsetO_X;
                 auraY += offsetO_Y;
-                ctx.globalAlpha = auraConfig.auraOpacity !== undefined ? Number(auraConfig.auraOpacity) : 0.85;
-                
-                if (auraConfig.auraHueRotate || auraConfig.auraSaturate || auraConfig.auraBrightness || auraConfig.auraContrast) {
-                    ctx.filter = `hue-rotate(${auraConfig.auraHueRotate || 0}deg) saturate(${auraConfig.auraSaturate ?? 1}) brightness(${auraConfig.auraBrightness ?? 1}) contrast(${auraConfig.auraContrast ?? 1})`;
-                }
-                
-                if (auraConfig.color && auraConfig.color !== "#ffffff") {
-                    const cacheKey = `aura_${auraConfig.id}_${currentAuraFrame}`;
-                    auraImg = this.getTintedImg(auraImg, auraConfig.color, cacheKey, (auraImg as any).width, (auraImg as any).height);
-                }
-            } else {
-                ctx.globalAlpha = 0.85;
             }
+
+            // Transition opacity modulation so aura smoothly fades in/out without hard pops
+            const transitionOpacity = Math.pow(transitionEase, 0.85);
+            const effectiveOpacity = Math.min(1.0, Math.max(0.01, baseOpacity * transitionOpacity));
+
+            // Prepare processed image with all effects baked in (Tinting + Matrix/Filters)
+            const auraColor = (auraConfig && auraConfig.color) ? auraConfig.color : "#ffffff";
+            const auraFilters = {
+                hueRotate: auraConfig?.auraHueRotate,
+                saturate: auraConfig?.auraSaturate,
+                brightness: auraConfig?.auraBrightness,
+                contrast: auraConfig?.auraContrast
+            };
+            
+            const effectCacheKey = `aura_full_${auraConfig?.id || auraUrl}_${currentAuraFrame}`;
+            auraImg = this.getCachedEffectImg(
+                auraImg, 
+                auraColor, 
+                effectCacheKey, 
+                auraFilters, 
+                (auraImg as any).width, 
+                (auraImg as any).height
+            );
+
+            const glowQuality = this.getGlowQuality();
+            const isEditorMode = !!forceAuraConfigKey;
+            const hasCustomGlow = !!(auraConfig && (
+                (auraConfig.glowColor && auraConfig.glowColor.trim() !== "") ||
+                auraConfig.glowRadius !== undefined ||
+                auraConfig.glowBlur !== undefined ||
+                auraConfig.glowIntensity !== undefined
+            ));
+
+            // Determine glow color
+            let glowColor = (auraConfig && auraConfig.glowColor && auraConfig.glowColor.trim() !== "")
+                ? auraConfig.glowColor
+                : (auraConfig && auraConfig.color && auraConfig.color !== "#ffffff")
+                    ? auraConfig.color
+                    : (sparkingActive ? "#fbbf24" : "#3b82f6");
+
+            if (glowColor && auraFilters && !(auraConfig && auraConfig.glowColor)) {
+                glowColor = this.getTransformedColor(glowColor, auraFilters);
+            }
+
+            // PASS 0: GROUND ENERGY IGNITION SHOCKWAVE (during transition surge)
+            if (scaleProgress > 0.1 && scaleProgress < 0.98 && effectiveOpacity > 0.1) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                const flareR = (auraW * 0.4) * (1.0 + (1.0 - scaleProgress) * 0.5);
+                const flareY = y + height - 4;
+                const flareX = x + width / 2;
+                const grad = ctx.createRadialGradient(flareX, flareY, 0, flareX, flareY, flareR);
+                grad.addColorStop(0, glowColor);
+                grad.addColorStop(0.5, glowColor);
+                grad.addColorStop(1, 'transparent');
+                ctx.fillStyle = grad;
+                ctx.globalAlpha = effectiveOpacity * (1.0 - scaleProgress) * 0.6;
+                ctx.beginPath();
+                ctx.ellipse(flareX, flareY, flareR, flareR * 0.3, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // PASS 1: VIBRANT GLOW OUTLINE PASS
+            if (glowQuality !== 'DISABLED' || isEditorMode || hasCustomGlow) {
+                GlowOptimizer.getInstance().registerGlowObject();
+                const isUltra = glowQuality === 'ULTRA';
+
+                const defaultBlur = isUltra ? 28 : 18;
+                const baseRadius = (auraConfig && (auraConfig.glowRadius !== undefined ? auraConfig.glowRadius : auraConfig.glowBlur)) !== undefined
+                    ? (auraConfig.glowRadius ?? auraConfig.glowBlur!)
+                    : defaultBlur;
+                const intensity = (auraConfig && auraConfig.glowIntensity !== undefined) ? auraConfig.glowIntensity : 1.0;
+                
+                // Add dynamic pulse to glow blur during charging/sparking
+                const blurPulse = transitionEase > 0.3 ? Math.sin(now / 50) * 4 * intensity : 0;
+                const reqBlur = Math.max(1, Math.round((baseRadius + blurPulse) * intensity));
+                const glowBlur = GlowOptimizer.getInstance().getOptimizedBlur(reqBlur, glowQuality);
+
+                ctx.save();
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = glowBlur;
+                ctx.globalAlpha = Math.min(1.0, effectiveOpacity * Math.min(1.5, 0.75 + intensity * 0.25));
+
+                const allowExtra = isEditorMode || GlowOptimizer.getInstance().allowExtraPass(glowQuality);
+                const passCount = ((isUltra && allowExtra) || isEditorMode || (hasCustomGlow && allowExtra) || intensity > 1.2) ? 2 : 1;
+                
+                for (let pIdx = 0; pIdx < passCount; pIdx++) {
+                    if (pIdx === 1) {
+                        ctx.shadowBlur = Math.round(glowBlur * 1.5);
+                    }
+                    if (!facingRight) {
+                        ctx.save();
+                        ctx.translate(auraX + auraW / 2, auraY + auraH / 2);
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(auraImg as any, -auraW / 2, -auraH / 2, auraW, auraH);
+                        ctx.restore();
+                    } else {
+                        ctx.drawImage(auraImg as any, auraX, auraY, auraW, auraH);
+                    }
+                }
+                ctx.restore();
+            }
+
+            // PASS 2: INNER AURA PASS
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = effectiveOpacity;
 
             if (!facingRight) {
                 ctx.translate(auraX + auraW / 2, auraY + auraH / 2);
@@ -790,6 +1047,601 @@ export class AnimationManager {
             }
             ctx.restore();
         }
+    }
+
+    public drawPlayerAuraParticles(
+        ctx: CanvasRenderingContext2D,
+        character: CharacterData,
+        state: PlayerState,
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        facingRight: boolean = true,
+        sparkingActive: boolean = false,
+        scaleH: number = 1.0,
+        scaleW: number = 1.0,
+        forceAuraConfigKey?: string
+    ) {
+        if (!character || !character.spriteConfig) return;
+        const configScaleX = ((character.spriteConfig as any)?.scaleX ?? (character as any).scale ?? 1.0);
+        const configScaleY = ((character.spriteConfig as any)?.scaleY ?? (character as any).scale ?? 1.0);
+
+        const animData = character.spriteConfig.animations?.[state];
+        const chargingAnimData = character.spriteConfig.animations?.[PlayerState.CHARGING];
+        
+        const hasAnimAuraConfigKey = animData && (animData as any).auraConfigKey;
+        const stateStr = String(state).toLowerCase();
+        const isChargingOrAuraState = 
+            state === PlayerState.CHARGING || 
+            state === PlayerState.CHARGE_START ||
+            state === PlayerState.CHARGE_END ||
+            stateStr.includes("charge") ||
+            stateStr.includes("carregando") ||
+            stateStr.includes("sparking") ||
+            stateStr.includes("aura") ||
+            stateStr.includes("transform") ||
+            stateStr.includes("power_up");
+
+        const isAuraEligibleState = 
+            !!forceAuraConfigKey ||
+            isChargingOrAuraState ||
+            sparkingActive ||
+            !!hasAnimAuraConfigKey;
+
+        if (!isAuraEligibleState) return;
+
+        const auraMgr = AuraConfigKeyManager.getInstance();
+        let auraConfig = forceAuraConfigKey ? auraMgr.getAuraConfig(forceAuraConfigKey) : null;
+        if (!auraConfig && animData && (animData as any).auraConfigKey) {
+            const animAuraKey = (animData as any).auraConfigKey;
+            const charSpecificKey = `${animAuraKey}_${character.id.toUpperCase()}`;
+            auraConfig = auraMgr.getAuraConfig(charSpecificKey) || auraMgr.getAuraConfig(animAuraKey);
+        }
+        if (!auraConfig && (state === PlayerState.TRANSFORM || stateStr.includes("transform")) && chargingAnimData && (chargingAnimData as any).auraConfigKey) {
+            const chargingAnimAuraKey = (chargingAnimData as any).auraConfigKey;
+            const charSpecificKey = `${chargingAnimAuraKey}_${character.id.toUpperCase()}`;
+            auraConfig = auraMgr.getAuraConfig(charSpecificKey) || auraMgr.getAuraConfig(chargingAnimAuraKey);
+        }
+        if (!auraConfig) auraConfig = auraMgr.getAuraConfigForAnimation(character.id, state);
+        if (!auraConfig && sparkingActive) auraConfig = auraMgr.getAuraConfigForCharacterSparking(character.id);
+        if (!auraConfig) auraConfig = auraMgr.getAuraConfigForCharacterDefault(character.id);
+
+        let auraUrl = sparkingActive ? AURA_GIFS.AURA_007 : getCharacterAuraUrl(character.id);
+        if (auraConfig) {
+            const rawBaseId = auraConfig.baseAuraId;
+            if (rawBaseId && (DEFAULT_AURAS as any)[rawBaseId]) {
+                auraUrl = (DEFAULT_AURAS as any)[rawBaseId];
+            } else if (rawBaseId && rawBaseId.startsWith("/")) {
+                auraUrl = rawBaseId;
+            } else if (rawBaseId && (AURA_GIFS as any)[rawBaseId]) {
+                auraUrl = (AURA_GIFS as any)[rawBaseId];
+            }
+        }
+
+        const actualHScale = (scaleH !== undefined && scaleH !== null) ? scaleH : 1.0;
+        const actualWScale = (scaleW !== undefined && scaleW !== null) ? scaleW : 1.0;
+        const baseOpacity = (auraConfig as any)?.opacity ?? 0.95;
+
+        const hScaleClamped = Math.min(1.3, Math.max(0, actualHScale));
+        const wScaleClamped = Math.min(1.3, Math.max(0, actualWScale));
+        
+        const scaleProgress = Math.min(1.0, hScaleClamped);
+        const transitionEase = Math.sin((scaleProgress * Math.PI) / 2);
+
+        const now = Date.now();
+        const pulseFreq = sparkingActive ? 45 : 65;
+        const pulseAmt = (Math.sin(now / pulseFreq) * 0.035 + Math.cos(now / (pulseFreq * 0.75)) * 0.02) * transitionEase;
+        const pulseH = 1.0 + (transitionEase > 0.2 ? pulseAmt : 0);
+        const pulseW = 1.0 + (transitionEase > 0.2 ? (pulseAmt * 0.75) : 0);
+
+        const floatUp = (1.0 - transitionEase) * 18 * (scaleProgress < 1.0 ? 1 : 0);
+
+        const auraW = width * 1.35 * wScaleClamped * configScaleX * pulseW;
+        const auraH = height * 1.35 * hScaleClamped * configScaleY * pulseH;
+        let auraX = x + width / 2 - auraW / 2;
+        let auraY = (y + height) - auraH - floatUp;
+
+        if (auraConfig) {
+            const offsetO_X = Number(auraConfig.auraOffsetX || 0);
+            const offsetO_Y = Number(auraConfig.auraOffsetY || 0);
+            auraX += facingRight ? offsetO_X : -offsetO_X;
+            auraY += offsetO_Y;
+        }
+
+        const transitionOpacity = Math.pow(transitionEase, 0.85);
+        const effectiveOpacity = Math.min(1.0, Math.max(0.01, baseOpacity * transitionOpacity));
+
+        const auraFilters = {
+            hueRotate: auraConfig?.auraHueRotate,
+            saturate: auraConfig?.auraSaturate,
+            brightness: auraConfig?.auraBrightness,
+            contrast: auraConfig?.auraContrast
+        };
+
+        let glowColor = (auraConfig && auraConfig.glowColor && auraConfig.glowColor.trim() !== "")
+            ? auraConfig.glowColor
+            : (auraConfig && auraConfig.color && auraConfig.color !== "#ffffff")
+                ? auraConfig.color
+                : (sparkingActive ? "#fbbf24" : "#3b82f6");
+
+        if (glowColor && auraFilters && !(auraConfig && auraConfig.glowColor)) {
+            glowColor = this.getTransformedColor(glowColor, auraFilters);
+        }
+
+        // CIRCULAR ENERGY PARTICLES CREATED IN FRONT OF CHARACTER (Genkidama energy particle style)
+        if (effectiveOpacity > 0.15 && transitionEase > 0.15) {
+            const numParticles = sparkingActive ? 18 : 12;
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            for (let i = 0; i < numParticles; i++) {
+                const pSeed = (i * 137 + 17) % 1000;
+                const pCycle = ((now * 0.45 + pSeed * 14) % 800) / 800; // 0 to 1
+                const pAlpha = Math.sin(pCycle * Math.PI) * effectiveOpacity * 0.95;
+                if (pAlpha <= 0.02) continue;
+                
+                const pXOffset = (Math.sin(pSeed + pCycle * 6) * 0.42) * auraW;
+                const px = auraX + auraW / 2 + pXOffset;
+                const py = (y + height + 10) - pCycle * (auraH * 1.05);
+                const pRadius = 2.5 + (pSeed % 4) * 1.4 + (sparkingActive ? 1.8 : 0);
+                const particleColor = (pSeed % 3 === 0) ? '#ffffff' : glowColor;
+
+                ctx.save();
+                ctx.globalAlpha = pAlpha;
+
+                // Upward motion trailing tail for rising aura energy particles
+                const tailLen = Math.min(22, pCycle * (auraH * 0.22));
+                if (tailLen > 2) {
+                    const tailY = py + tailLen;
+                    const gradTrail = ctx.createLinearGradient(px, py, px, tailY);
+                    gradTrail.addColorStop(0, particleColor);
+                    gradTrail.addColorStop(1, 'transparent');
+
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(px, tailY);
+                    ctx.strokeStyle = gradTrail;
+                    ctx.lineWidth = Math.max(1, pRadius * 0.85);
+                    ctx.stroke();
+                }
+
+                // Soft outer energy radial aura glow (Genkidama energy particle style)
+                const auraRadius = pRadius * 2.2;
+                const auraGrad = ctx.createRadialGradient(px, py, 0, px, py, auraRadius);
+                auraGrad.addColorStop(0, '#ffffff');
+                auraGrad.addColorStop(0.3, glowColor);
+                auraGrad.addColorStop(0.75, particleColor);
+                auraGrad.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(px, py, auraRadius, 0, Math.PI * 2);
+                ctx.fillStyle = auraGrad;
+                ctx.fill();
+
+                // Main vibrant energy core
+                ctx.beginPath();
+                ctx.arc(px, py, pRadius * 0.85, 0, Math.PI * 2);
+                ctx.fillStyle = particleColor;
+                ctx.fill();
+
+                // White-hot energy particle center
+                ctx.beginPath();
+                ctx.arc(px, py, pRadius * 0.45, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+
+                // Micro energy spark rays for larger aura particles
+                if (pRadius > 4.2) {
+                    ctx.beginPath();
+                    const sparkLen = pRadius * 1.5;
+                    ctx.moveTo(px - sparkLen, py);
+                    ctx.lineTo(px + sparkLen, py);
+                    ctx.moveTo(px, py - sparkLen);
+                    ctx.lineTo(px, py + sparkLen);
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+            ctx.restore();
+        }
+    }
+
+    /**
+     * Draws aura-style circular energy particles (glowing outer circle + bright white inner core)
+     * for beams, genkidamas, beans, and projectiles.
+     * Optimized for high performance (60 FPS) without heavy gradient allocations.
+     */
+    public drawEnergyParticles(
+        ctx: CanvasRenderingContext2D,
+        options: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+            glowColor: string;
+            count?: number;
+            facingRight?: boolean;
+            isBeam?: boolean;
+            isSpherical?: boolean;
+            speedScale?: number;
+            opacity?: number;
+            rotation?: number;
+        }
+    ) {
+        const {
+            x,
+            y,
+            width,
+            height,
+            glowColor,
+            count = 16,
+            facingRight = true,
+            isBeam = false,
+            isSpherical = false,
+            speedScale = 1.0,
+            opacity = 1.0,
+            rotation = 0
+        } = options;
+
+        if (opacity <= 0.02 || count <= 0 || width <= 0) return;
+
+        const mult = this.getParticleMultiplier();
+        if (mult <= 0) return;
+
+        const maxAllowed = isBeam ? 24 : 16;
+        const adjustedCount = Math.min(maxAllowed, Math.max(1, Math.round(count * Math.min(1.0, mult))));
+
+        const now = Date.now();
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        if (rotation !== 0 && !isSpherical) {
+            ctx.translate(x, y);
+            ctx.rotate((rotation * Math.PI) / 180);
+            ctx.translate(-x, -y);
+        }
+
+        for (let i = 0; i < adjustedCount; i++) {
+            const pSeed = (i * 137 + 17) % 1000;
+            const pCycle = ((now * 0.45 * speedScale + pSeed * 14) % 800) / 800; // 0 to 1
+            const pAlpha = Math.sin(pCycle * Math.PI) * opacity * 0.9;
+            if (pAlpha <= 0.02) continue;
+
+            let px = x;
+            let py = y;
+            let pRadius = 2.2 + (pSeed % 4) * 1.2;
+            let customTail: { x: number; y: number } | null = null;
+
+            if (isBeam) {
+                const particleType = i % 3;
+                const bodyRatio = (((pSeed % 100) / 100 + pCycle * 0.35) % 1.0); // Covers entire beam length (0 = start, 1 = tip)
+                const dist = bodyRatio * width;
+                px = facingRight ? x + dist : x - dist;
+
+                // Alternate up (-1) and down (+1) movement for particles
+                const upDownSign = (i % 2 === 0) ? -1 : 1;
+
+                if (particleType === 0) {
+                    // 1. Oscillating body particles moving up and down along the beam shaft from start to tip
+                    const verticalWiggle = upDownSign * (Math.sin(pSeed * 0.1 + pCycle * Math.PI * 2) * (height * 0.45) + (pCycle * 16));
+                    py = y + verticalWiggle;
+                    pRadius = 2.4 + (pSeed % 5) * 1.3;
+
+                    const tailDist = Math.min(20, dist * 0.3);
+                    customTail = {
+                        x: facingRight ? px - tailDist : px + tailDist,
+                        y: py - (upDownSign * 3)
+                    };
+                } else if (particleType === 1) {
+                    // 2. Vertical energy eruption rising UP or going DOWN from anywhere on the beam body
+                    const burstY = upDownSign * (height * 0.2 + pCycle * (25 + (pSeed % 28)));
+                    py = y + burstY;
+                    pRadius = 2.2 + (pSeed % 4) * 1.2;
+
+                    customTail = {
+                        x: px,
+                        y: y + upDownSign * (height * 0.1)
+                    };
+                } else {
+                    // 3. Tip and front wind dispersal floating up/down into atmosphere
+                    const tipRatio = 0.6 + ((pSeed % 40) / 100) + pCycle * 0.4;
+                    const tipDist = Math.min(width, tipRatio * width);
+                    px = facingRight ? x + tipDist : x - tipDist;
+
+                    const floatOffset = upDownSign * (Math.sin(pCycle * Math.PI) * (30 + (pSeed % 35)) + pCycle * 20);
+                    py = y + floatOffset;
+                    pRadius = 2.6 + (pSeed % 5) * 1.4;
+
+                    const prevDist = Math.max(0, tipDist - 15);
+                    const prevPx = facingRight ? x + prevDist : x - prevDist;
+                    customTail = { x: prevPx, y: py - (upDownSign * 5) };
+                }
+            } else if (isSpherical) {
+                // Spherical energy (Genkidama/Orbs) orbiting radially around center
+                const angle = ((pSeed % 1000) / 1000) * Math.PI * 2 + pCycle * Math.PI * 2;
+                const radiusDist = (0.25 + pCycle * 0.7) * (width / 2);
+                px = x + Math.cos(angle) * radiusDist;
+                py = y + Math.sin(angle) * radiusDist - pCycle * 14;
+                pRadius = 2.8 + (pSeed % 5) * 1.5;
+            } else {
+                // Traveling projectile / Ki Blast / Bean particles trailing around core
+                const dirSign = facingRight ? -1 : 1;
+                const trailOffset = (pCycle - 0.5) * (width * 1.1);
+                const pXOffset = (Math.sin(pSeed + pCycle * 6) * 0.35) * width;
+                const pYOffset = (Math.cos(pSeed * 2 + pCycle * 5) * 0.35) * height;
+                px = x + dirSign * trailOffset + pXOffset;
+                py = y + pYOffset;
+                pRadius = 2.2 + (pSeed % 4) * 1.2;
+            }
+
+            const particleColor = (pSeed % 3 === 0) ? '#ffffff' : glowColor;
+
+            // Trailing motion tail
+            if (isBeam && customTail) {
+                const tailX = customTail.x;
+                const tailY = customTail.y;
+                const tailLen = Math.hypot(px - tailX, py - tailY);
+
+                if (tailLen > 2) {
+                    ctx.globalAlpha = pAlpha * 0.55;
+                    ctx.strokeStyle = particleColor;
+                    ctx.lineWidth = Math.max(1, pRadius * 0.75);
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(tailX, tailY);
+                    ctx.stroke();
+                }
+            }
+
+            // Outer soft energy aura glow (Ultra-fast arc fill with 'lighter' mode)
+            const auraRadius = pRadius * 2.2;
+            ctx.globalAlpha = pAlpha * 0.32;
+            ctx.fillStyle = glowColor;
+            ctx.beginPath();
+            ctx.arc(px, py, auraRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Main vibrant energy core
+            ctx.globalAlpha = pAlpha * 0.85;
+            ctx.fillStyle = particleColor;
+            ctx.beginPath();
+            ctx.arc(px, py, pRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // White-hot energy particle center
+            ctx.globalAlpha = pAlpha;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(px, py, pRadius * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Micro energy spark rays for larger particles
+            if (pRadius > 4.2) {
+                ctx.globalAlpha = pAlpha * 0.75;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                const sparkLen = pRadius * 1.4;
+                ctx.moveTo(px - sparkLen, py);
+                ctx.lineTo(px + sparkLen, py);
+                ctx.moveTo(px, py - sparkLen);
+                ctx.lineTo(px, py + sparkLen);
+                ctx.stroke();
+            }
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Draws pixel/cube voxel disintegration dispersion particles when entering destruction mode.
+     * Inspired by Thanos-snap pixel disintegration (cubes & pixel dust breaking off from tip to origin).
+     */
+    public drawBeamDispersionParticles(
+        ctx: CanvasRenderingContext2D,
+        options: {
+            x: number; // Front/dissolve X position in world space
+            y: number; // Center Y in world space
+            height: number; // Beam height
+            glowColor: string; // Beam color/glow
+            shrinkProgress: number; // 0.0 (tip) to 1.0 (origin)
+            facingRight?: boolean;
+            rotation?: number;
+            count?: number;
+        }
+    ) {
+        const {
+            x,
+            y,
+            height,
+            glowColor,
+            shrinkProgress,
+            facingRight = true,
+            rotation = 0,
+            count = 35
+        } = options;
+
+        if (shrinkProgress <= 0.001 || shrinkProgress >= 1.0) return;
+
+        const mult = this.getParticleMultiplier();
+        if (mult <= 0) return;
+
+        const adjustedCount = Math.min(25, Math.max(1, Math.round(count * Math.min(1.0, mult))));
+
+        const now = Date.now();
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        if (rotation !== 0) {
+            ctx.translate(x, y);
+            ctx.rotate((rotation * Math.PI) / 180);
+            ctx.translate(-x, -y);
+        }
+
+        const dirSign = facingRight ? 1 : -1;
+
+        // 1. Energy Dissolution Line Front
+        const fontH = height * 0.7;
+        for (let py = -fontH / 2; py <= fontH / 2; py += 12) {
+            const seed = (Math.floor(py) * 31 + Math.floor(now / 40)) % 1000;
+            const orbX = x + ((seed % 14) - 7);
+            const orbY = y + py;
+            const orbSize = 4 + (seed % 5);
+            const particleColor = (seed % 3 === 0) ? '#ffffff' : glowColor;
+
+            ctx.globalAlpha = 0.35;
+            ctx.fillStyle = glowColor;
+            ctx.beginPath();
+            ctx.arc(orbX, orbY, orbSize * 2.0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.globalAlpha = 0.85;
+            ctx.fillStyle = particleColor;
+            ctx.beginPath();
+            ctx.arc(orbX, orbY, orbSize * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(orbX, orbY, orbSize * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 2. Swarm of Aura Energy Particles dispersing organically with Genkidama dispersion physics
+        for (let i = 0; i < adjustedCount; i++) {
+            const seed = (i * 173 + Math.floor(shrinkProgress * 60)) % 1000;
+            const cycle = ((now * 0.45 + seed * 19) % 700) / 700; // 0 to 1
+            
+            const fadeIn = Math.min(1.0, cycle * 5.0);
+            const fadeOut = Math.max(0.0, 1.0 - cycle);
+            const alpha = fadeIn * fadeOut * Math.sin(shrinkProgress * Math.PI) * 0.95;
+            if (alpha <= 0.02) continue;
+
+            const startX = x + ((seed % 22) - 11);
+            const startY = y + (((seed % 100) / 100 - 0.5) * height * 0.9);
+
+            // Genkidama particle dispersion formula: scattering outward and upward in arc
+            const angle = ((seed % 100) / 100) * Math.PI * 2;
+            const speed = 3 + (seed % 5);
+            const vx = Math.cos(angle) * speed;
+            const vy = -2.5 - (seed % 4);
+
+            const px = startX + vx * (cycle * 25);
+            const py = startY + vy * (cycle * 25);
+
+            const orbSize = Math.max(2, (3.2 + (seed % 5) * 1.5) * (1.0 - cycle * 0.4));
+            const particleColor = (seed % 3 === 0) ? '#ffffff' : glowColor;
+
+            // Aura particle rendering (soft aura glow + core + white center)
+            const auraRadius = orbSize * 2.0;
+            ctx.globalAlpha = alpha * 0.35;
+            ctx.fillStyle = glowColor;
+            ctx.beginPath();
+            ctx.arc(px, py, auraRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.globalAlpha = alpha * 0.85;
+            ctx.fillStyle = particleColor;
+            ctx.beginPath();
+            ctx.arc(px, py, orbSize * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(px, py, orbSize * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 3. Micro-Energy Dust Specks (Swirling micro energy specks)
+        const microCount = Math.round(count * 0.4);
+        for (let k = 0; k < microCount; k++) {
+            const mSeed = (k * 241 + Math.floor(shrinkProgress * 80)) % 1000;
+            const mCycle = ((now * 0.38 + mSeed * 29) % 800) / 800;
+            
+            const mFadeIn = Math.min(1.0, mCycle * 4.0);
+            const mFadeOut = Math.max(0.0, 1.0 - mCycle);
+            const mAlpha = mFadeIn * mFadeOut * 0.85;
+            if (mAlpha <= 0.03) continue;
+
+            const mTurbulenceX = Math.sin(mCycle * 8 + mSeed) * (14 + (mSeed % 10));
+            const mTurbulenceY = Math.cos(mCycle * 6 + mSeed * 1.7) * (10 + (mSeed % 8));
+
+            const mStartX = x + ((mSeed % 26) - 13);
+            const mStartY = y + (((mSeed % 100) / 100 - 0.5) * height * 1.0);
+
+            const mArcDist = (mCycle * 85 + Math.pow(mCycle, 1.25) * 105) * (0.65 + (mSeed % 5) * 0.2);
+            const mArcPeak = 40 + (mSeed % 50);
+            const mUpwardFloat = mCycle * (45 + (mSeed % 55));
+
+            const mDx = dirSign * mArcDist + mTurbulenceX * mCycle;
+            const mDy = - (Math.sin(mCycle * Math.PI * 0.85) * mArcPeak + mUpwardFloat) + mTurbulenceY * mCycle;
+
+            const mpx = mStartX + mDx;
+            const mpy = mStartY + mDy;
+            const mSize = 1.8 + (mSeed % 3);
+            const mColor = (mSeed % 3 === 0) ? '#ffffff' : glowColor;
+
+            ctx.save();
+            ctx.globalAlpha = mAlpha;
+
+            // Outer soft energy radial aura glow
+            const mAuraRadius = mSize * 2.2;
+            const mGrad = ctx.createRadialGradient(mpx, mpy, 0, mpx, mpy, mAuraRadius);
+            mGrad.addColorStop(0, '#ffffff');
+            mGrad.addColorStop(0.3, glowColor);
+            mGrad.addColorStop(0.75, mColor);
+            mGrad.addColorStop(1, 'transparent');
+
+            ctx.beginPath();
+            ctx.arc(mpx, mpy, mAuraRadius, 0, Math.PI * 2);
+            ctx.fillStyle = mGrad;
+            ctx.fill();
+
+            // Main vibrant energy core
+            ctx.beginPath();
+            ctx.arc(mpx, mpy, mSize * 0.85, 0, Math.PI * 2);
+            ctx.fillStyle = mColor;
+            ctx.fill();
+
+            // White-hot energy particle center
+            ctx.beginPath();
+            ctx.arc(mpx, mpy, mSize * 0.45, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // 4. Electric energy arcs crackling at disintegration edge x
+        const numSparks = 4 + (Math.floor(now / 50) % 3);
+        for (let j = 0; j < numSparks; j++) {
+            const sparkSeed = (j * 233 + Math.floor(now / 30)) % 1000;
+            const sparkYOff = ((sparkSeed % 100) / 100 - 0.5) * height * 1.0;
+            const sparkXOff = (sparkSeed % 16) - 8;
+
+            ctx.beginPath();
+            ctx.moveTo(x + sparkXOff, y + sparkYOff);
+            const midX = x + sparkXOff + ((sparkSeed % 14) - 7);
+            const midY = y + sparkYOff - (10 + (sparkSeed % 12));
+            const endX = midX + ((sparkSeed % 12) - 6);
+            const endY = midY - (8 + (sparkSeed % 10));
+
+            ctx.lineTo(midX, midY);
+            ctx.lineTo(endX, endY);
+            ctx.strokeStyle = (j % 2 === 0) ? '#ffffff' : glowColor;
+            ctx.lineWidth = 1.6 + (sparkSeed % 2) * 0.8;
+            ctx.globalAlpha = 0.85;
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 10;
+            ctx.stroke();
+        }
+
+        ctx.restore();
     }
 
     public drawPlayer(
@@ -823,17 +1675,18 @@ export class AnimationManager {
         animFinished: boolean = false,
         customSubphase?: number,
         phasedMoveAnim?: string,
-        lastState?: PlayerState
+        lastState?: PlayerState,
+        superDashPhase?: number
     ) {
         const config = character.spriteConfig;
         if (!config || !config.animations) return;
 
         // Optimization: Cache animation key resolution
-        const cacheKey = `${character.id}_${state}_${comboType}_${comboStep}_${ataque}_${this_ultPhase}_${this_nextTransformId}_${attackTimer}_${ultType}_${isGrounded}_${isDetransforming}_${isKOTag}_${wasCrouching}_${stunTimer}_${animFinished}_${customSubphase}_${phasedMoveAnim}_${lastState}`;
+        const cacheKey = `${character.id}_${state}_${comboType}_${comboStep}_${ataque}_${this_ultPhase}_${this_nextTransformId}_${attackTimer}_${ultType}_${isGrounded}_${isDetransforming}_${isKOTag}_${wasCrouching}_${stunTimer}_${animFinished}_${customSubphase}_${phasedMoveAnim}_${lastState}_${superDashPhase}`;
         let animKey = this.animKeyCache.get(cacheKey);
         
         if (!animKey) {
-            animKey = resolveAnimationKey(character.id, state, comboType, comboStep, ataque, this_ultPhase, this_nextTransformId, attackTimer, ultType, isGrounded, isDetransforming, isKOTag, config, wasCrouching, stunTimer, undefined, animFinished, customSubphase, phasedMoveAnim, lastState);
+            animKey = resolveAnimationKey(character.id, state, comboType, comboStep, ataque, this_ultPhase, this_nextTransformId, attackTimer, ultType, isGrounded, isDetransforming, isKOTag, config, wasCrouching, stunTimer, superDashPhase, animFinished, customSubphase, phasedMoveAnim, lastState);
             this.animKeyCache.set(cacheKey, animKey);
             
             // Limit cache size to prevent memory leaks
@@ -843,14 +1696,27 @@ export class AnimationManager {
             }
         }
 
-        let animToDraw = config.animations[animKey];
+        let animToDraw = (animKey && config.animations[animKey]) ||
+                         (animKey && config.animations[animKey.toLowerCase()]) ||
+                         (animKey && config.animations[animKey.toUpperCase()]) ||
+                         (state && config.animations[state as string]) || 
+                         (state && config.animations[(state as string).toLowerCase()]) ||
+                         (state && config.animations[(state as string).toUpperCase()]);
+        if (!animToDraw && animKey) {
+            animToDraw = config.animations[animKey.toLowerCase()] || config.animations[animKey.toUpperCase()];
+        }
         
         // Fallback logic (optimized)
         if (!animToDraw) {
             if (state === PlayerState.TAG_IN && !isKOTag) {
                 animToDraw = config.animations[PlayerState.DASHING] || config.animations[PlayerState.RUNNING];
             } else if (state === PlayerState.SUPER_DASH) {
-                animToDraw = config.animations["SUPER_DASH_1"] || config.animations["super_dash_1"] || config.animations[PlayerState.SUPER_DASH];
+                const currentPhase = superDashPhase ?? ((attackTimer || 0) > 0 ? 1 : 2);
+                if (currentPhase === 1) {
+                  animToDraw = config.animations["SUPER_DASH_1"] || config.animations["super_dash_1"] || config.animations[PlayerState.DASH_START] || config.animations[PlayerState.SUPER_DASH];
+                } else {
+                  animToDraw = config.animations["SUPER_DASH_2"] || config.animations["super_dash_2"] || config.animations[PlayerState.DASHING] || config.animations[PlayerState.SUPER_DASH];
+                }
             } else if (state === PlayerState.DRAGON_DASH_FOLLOW) {
                 animToDraw = config.animations["dragon_rush_3"] || config.animations["DRAGON_RUSH_3"] || config.animations[PlayerState.DRAGON_DASH_FOLLOW];
             } else if (state === PlayerState.DRAGON_COMBO) {

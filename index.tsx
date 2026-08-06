@@ -9,11 +9,33 @@ registerSW({ immediate: true });
 KeyboardManager.getInstance().init();
 
 window.addEventListener('error', (event) => {
+  if (
+    event.message === 'Script error.' ||
+    !event.error ||
+    (typeof event.message === 'string' && event.message.includes('Script error'))
+  ) {
+    // Suppress cross-origin script errors (e.g. AdSense, third party scripts or ad blockers)
+    event.preventDefault();
+    return;
+  }
   console.error("Global uncaught error:", event.error);
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-  if (event.reason && typeof event.reason === 'object' && event.reason.code === 'auth/network-request-failed') {
+  if (!event.reason) {
+    event.preventDefault();
+    return;
+  }
+  if (typeof event.reason === 'string' && event.reason.includes('Script error')) {
+    event.preventDefault();
+    return;
+  }
+  if (
+    event.reason &&
+    typeof event.reason === 'object' &&
+    (event.reason.code === 'auth/network-request-failed' ||
+      (event.reason.message && event.reason.message.includes('Script error')))
+  ) {
     // Suppress expected internal Firebase Auth network errors when offline or in preview
     event.preventDefault();
     return;

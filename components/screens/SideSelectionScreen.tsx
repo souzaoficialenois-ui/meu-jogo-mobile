@@ -21,7 +21,7 @@ const getDeviceList = (obj: any): DeviceState[] => {
 };
 
 export const SideSelectionScreen: React.FC = () => {
-    const { changeScene, beginCharacterSelection, t, settings } = useSceneManager();
+    const { changeScene, beginCharacterSelection, t, settings, isChatOpen } = useSceneManager();
     const isPt = settings?.language === 'pt';
     const [devices, setDevices] = useState<Record<string, DeviceState>>({});
     const [allowed, setAllowed] = useState(false);
@@ -41,6 +41,19 @@ export const SideSelectionScreen: React.FC = () => {
 
         // Keydown listener for the keyboard
         const handleKeyDown = (e: KeyboardEvent) => {
+            const active = document.activeElement as HTMLElement | null;
+            const target = e.target as HTMLElement | null;
+            const isInput = (el: HTMLElement | null) => !!(el && (
+                el.tagName === 'INPUT' ||
+                el.tagName === 'TEXTAREA' ||
+                el.tagName === 'SELECT' ||
+                el.isContentEditable
+            ));
+
+            if (isInput(active) || isInput(target) || isChatOpen) {
+                return;
+            }
+
             const kbState = manager.deviceStates['keyboard'];
             if (!kbState) return;
 
@@ -211,8 +224,9 @@ export const SideSelectionScreen: React.FC = () => {
     }, [changeScene, manager]);
 
     // Check if both sides are ready (fully confirmed)
-    const p1Ready = getDeviceList(devices).some((s) => s.side === 'left' && s.confirmed);
-    const p2Ready = getDeviceList(devices).some((s) => s.side === 'right' && s.confirmed);
+    const kbConfirmed = getDeviceList(devices).some((s) => s.device.id === 'keyboard' && s.confirmed);
+    const p1Ready = getDeviceList(devices).some((s) => s.side === 'left' && s.confirmed) || kbConfirmed;
+    const p2Ready = getDeviceList(devices).some((s) => s.side === 'right' && s.confirmed) || kbConfirmed;
     const bothReady = p1Ready && p2Ready;
 
     const handleConfirmStart = () => {
@@ -283,9 +297,9 @@ export const SideSelectionScreen: React.FC = () => {
                         <AnimatePresence mode="popLayout">
                             {getDeviceList(devices)
                                 .filter((d) => d.side === 'left')
-                                .map((d) => (
+                                .map((d, idx) => (
                                     <motion.div 
-                                        key={d.device.id}
+                                        key={`left-dev-${d.device.id}-${idx}`}
                                         initial={{ scale: 0.8, opacity: 0, y: 10 }}
                                         animate={{ scale: 1, opacity: 1, y: 0 }}
                                         exit={{ scale: 0.8, opacity: 0 }}
@@ -339,9 +353,9 @@ export const SideSelectionScreen: React.FC = () => {
                         <AnimatePresence>
                             {getDeviceList(devices)
                                 .filter((d) => d.side === 'neutral')
-                                .map((d) => (
+                                .map((d, idx) => (
                                     <motion.div
-                                        key={d.device.id}
+                                        key={`neutral-dev-${d.device.id}-${idx}`}
                                         initial={{ opacity: 0, x: -10 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, scale: 0.9 }}
@@ -372,16 +386,16 @@ export const SideSelectionScreen: React.FC = () => {
                     <div className="w-full mt-2 bg-stone-950/80 border border-stone-800 rounded-lg p-2 flex flex-col gap-1 text-[10px] font-mono">
                         <span className="text-stone-500 uppercase tracking-wider text-center">{isPt ? 'REQUISITOS MÍNIMOS' : 'MINIMUM REQUIREMENTS'}</span>
                         <div className="flex items-center justify-between mt-1">
-                            <span>{isPt ? '2 Controles (Gamepad):' : '2 Controllers (Gamepad):'}</span>
-                            {manager.gamepads.length >= 2 ? (
+                            <span>{isPt ? '1 Teclado (P1 + P2):' : '1 Keyboard (P1 + P2):'}</span>
+                            {manager.keyboardAvailable ? (
                                 <span className="text-emerald-400 font-bold">{isPt ? 'ATENDIDO' : 'MET'}</span>
                             ) : (
                                 <span className="text-stone-500">{isPt ? 'INDISPONÍVEL' : 'UNAVAILABLE'}</span>
                             )}
                         </div>
                         <div className="flex items-center justify-between">
-                            <span>{isPt ? '1 Teclado + 1 Gamepad:' : '1 Keyboard + 1 Gamepad:'}</span>
-                            {manager.keyboardAvailable && manager.gamepads.length >= 1 ? (
+                            <span>{isPt ? '2 Controles (Gamepad):' : '2 Controllers (Gamepad):'}</span>
+                            {manager.gamepads.length >= 2 ? (
                                 <span className="text-emerald-400 font-bold">{isPt ? 'ATENDIDO' : 'MET'}</span>
                             ) : (
                                 <span className="text-stone-500">{isPt ? 'INDISPONÍVEL' : 'UNAVAILABLE'}</span>
@@ -413,9 +427,9 @@ export const SideSelectionScreen: React.FC = () => {
                         <AnimatePresence mode="popLayout">
                             {getDeviceList(devices)
                                 .filter((d) => d.side === 'right')
-                                .map((d) => (
+                                .map((d, idx) => (
                                     <motion.div 
-                                        key={d.device.id}
+                                        key={`right-dev-${d.device.id}-${idx}`}
                                         initial={{ scale: 0.8, opacity: 0, y: 10 }}
                                         animate={{ scale: 1, opacity: 1, y: 0 }}
                                         exit={{ scale: 0.8, opacity: 0 }}

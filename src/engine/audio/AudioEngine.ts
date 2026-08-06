@@ -9,6 +9,7 @@ import { AudioSettings } from './AudioSettings';
 import { AudioCache } from './AudioCache';
 import { AudioPool } from './AudioPool';
 import { SoundCategory } from './AudioManifest';
+import { SpatialAudioService } from '../../../services/SpatialAudioService';
 
 export class AudioEngine {
     private static instance: AudioEngine;
@@ -89,6 +90,10 @@ export class AudioEngine {
         config.setVolume(SoundCategory.SFX, sfx);
         config.setVolume(SoundCategory.VOICE, voice);
         config.setVolume(SoundCategory.UI, ui);
+
+        if (settings.spatialAudioMode) {
+            SpatialAudioService.getInstance().setMode(settings.spatialAudioMode);
+        }
     }
 
     /**
@@ -129,20 +134,20 @@ export class AudioEngine {
     /**
      * Executes gameplay Sound Effects (hits, explosions, blocking aura)
      */
-    public playSFX(key: string, customMultiplier: number = 1.0) {
+    public playSFX(key: string, customMultiplier: number = 1.0, worldX?: number, getPositionX?: () => number) {
         // Intercept UI sounds vs Battle effects of identical namespaces
         if (['click', 'confirm', 'cancel', 'reveal'].includes(key)) {
             UISoundManager.getInstance().playSFX(key as any);
         } else {
-            SFXManager.getInstance().playSFX(key, customMultiplier);
+            SFXManager.getInstance().playSFX(key, customMultiplier, worldX, getPositionX);
         }
     }
 
     /**
      * Triggers character speech voice actor lines
      */
-    public playVoice(voiceKey: string) {
-        VoiceManager.getInstance().playVoice(voiceKey);
+    public playVoice(voiceKey: string, worldX?: number, getPositionX?: () => number) {
+        VoiceManager.getInstance().playVoice(voiceKey, worldX, getPositionX);
     }
 
     /**
@@ -153,9 +158,11 @@ export class AudioEngine {
         const uiGroup = ['click', 'confirm', 'cancel', 'reveal'];
         const sfxGroup = [
             'punch', 'attack', 'block', 'charge', 'dash', 'ready', 'fight', 'ko', 'summon', 'victory', 'defeat',
+            'combo_leve_1', 'combo_leve_2', 'combo_leve_3',
+            'combo_medio_1', 'combo_medio_2', 'combo_medio_3', 'combo_forte',
+            'ki_charge_start', 'ki_charge_loop', 'jump', 'land', 'dragon_rush_inicio', 'dragon_rush_combo', 'dragon_rush_final', 'teleport', 'guard_break', 'entrada_ko',
             'narrator_ready', 'narrator_fight', 'narrator_change', 'narrator_nice_combo', 'narrator_great_combo',
             'narrator_excellent_combo', 'narrator_wonderful_power', 'narrator_max_power', 'narrator_perfect',
-            'ki_charge_start', 'ki_charge_loop', 'jump', 'land', 'dragon_rush_inicio', 'dragon_rush_combo', 'dragon_rush_final', 'teleport', 'guard_break',
             'goku_base_kamehameha_inicio', 'goku_base_kamehameha_lancado',
             'goku_base_genkidama_inicio', 'goku_base_genkidama_criando', 'goku_base_genkidama_colisao', 'goku_base_genkidama_explosao',
             'goku_black_rose_intro_inicio', 'goku_black_rose_intro_final'

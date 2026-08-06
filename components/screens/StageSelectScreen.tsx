@@ -332,7 +332,7 @@ const StageSelectScreenContent: React.FC = () => {
                     const Icon = item.icon;
                     return (
                         <button
-                            key={item.id}
+                            key={`stage-sel-${item.id}-${i}`}
                             onClick={() => handleItemClick(item.id)}
                             className={`
                                 relative flex-1 rounded-2xl overflow-hidden transition-all duration-300 transform group cursor-pointer
@@ -368,7 +368,7 @@ const StageSelectScreenContent: React.FC = () => {
                     const isLocked = !isItemUnlocked(`music:${item.id}`);
                     return (
                         <button
-                            key={item.id}
+                            key={`music-sel-${item.id}-${i}`}
                             onClick={() => handleItemClick(item.id)}
                             className={`
                                 relative flex-1 rounded-2xl overflow-hidden transition-all duration-300 transform group cursor-pointer

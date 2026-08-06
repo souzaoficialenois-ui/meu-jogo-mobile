@@ -188,6 +188,9 @@ export const VegetaSSJMajin: CharacterData = {
       [PlayerState.DASH_END]: createGifAnim(URLS.super_dash_2, false),
       TAG_IN_KO: createGifAnim(URLS.entrada_por_ko, false),
       [PlayerState.SUPER_DASH]: createGifAnim(URLS.super_dash_1, true, 5),
+      SUPER_DASH_1: createGifAnim(URLS.super_dash_1, true, 5),
+      SUPER_DASH_2: createGifAnim(URLS.super_dash_2, true, 5),
+      super_dash_2: createGifAnim(URLS.super_dash_2, true, 5),
       [PlayerState.DRAGON_RUSH]: createGifAnim(URLS.dragon_rush_1, false),
       [PlayerState.DRAGON_COMBO]: createGifAnim(URLS.dragon_rush_2, false),
       [PlayerState.DRAGON_DASH_FOLLOW]: createGifAnim(URLS.dragon_rush_3, false),
@@ -195,7 +198,19 @@ export const VegetaSSJMajin: CharacterData = {
       dragon_rush_3: createGifAnim(URLS.dragon_rush_3, false),
 
       [PlayerState.CHARGE_START]: createGifAnim(URLS.carregando_ki_1, false),
-      [PlayerState.CHARGING]: createGifAnim(URLS.carregando_ki_2, true),
+      [PlayerState.CHARGING]: {
+        imageUrl: "/Assets/personagens/vegetassjmajin/carregando_ki_loop.gif",
+        frames: 1,
+        frameWidth: 0,
+        frameHeight: 0,
+        isGif: true,
+        speed: 5,
+        loop: true,
+        scale: 2.2,
+        offsetX: 0,
+        offsetY: 0,
+        auraConfigKey: "CHAVE_AURA_014"
+      },
       [PlayerState.CHARGE_END]: createGifAnim(URLS.carregando_ki_3, false),
       [PlayerState.SPARKING]: createGifAnim(URLS.sparking, false),
 
@@ -277,19 +292,20 @@ export const VegetaSSJMajin: CharacterData = {
             { animation: 'CROUCH_HEAVY_1_1', duration: 15, hitboxActive: false, damage: 0 }, 
             { 
                 animation: 'CROUCH_HEAVY_1_2', 
-                duration: 25, 
+                duration: 35, 
                 hitboxActive: true, 
                 damage: 15, 
-                launchOpponent: { x: 40, y: -60 }, 
+                launchOpponent: { x: 55, y: -95 }, 
                 velocityJump: { x: 12, y: -7.2 }, 
                 sfxName: 'attack_heavy',
-                attackBoxWidth: 80,
-                attackBoxHeight: 80,
-                attackBoxOffsetX: 50,
-                attackBoxOffsetY: 10,
+                projectile: 'BOOMERANG_VEGETA',
+                attackBoxWidth: 100,
+                attackBoxHeight: 100,
+                attackBoxOffsetX: 30,
+                attackBoxOffsetY: -20,
                 armor: true
             }, 
-            { animation: 'CROUCH_HEAVY_1_3', duration: 20, hitboxActive: false, damage: 0 } 
+            { animation: 'CROUCH_HEAVY_1_3', duration: 25, hitboxActive: false, damage: 0 } 
         ]
     },
     'AIR_LIGHT': {
@@ -340,6 +356,43 @@ export const VegetaSSJMajin: CharacterData = {
             { animation: 'Especial_2_1', duration: 15 },
             { animation: 'Especial_2_2', duration: 80, damage: 40, createsBeam: "CHAVE_BEAM_47", shakeIntensity: 5 },
             { animation: 'Especial_2_3', duration: 20 }
+        ]
+    },
+    'INTRO': {
+        id: 'INTRO',
+        phases: [
+            { animation: 'INTRO_1', duration: 25 },
+            { animation: 'INTRO_2', duration: 25 },
+            { animation: 'INTRO_3', duration: 25 },
+            { animation: 'INTRO_4', duration: 25 },
+            { animation: 'INTRO_5', duration: 25 },
+            { animation: 'INTRO_6', duration: 25 },
+            { animation: 'INTRO_7', duration: 25 },
+            { animation: 'INTRO_8', duration: 25 }
+        ]
+    },
+    'ULTIMATE_1': {
+        id: 'ULTIMATE_1',
+        phases: [
+            { animation: 'ULTIMATE_1_1', duration: 20, sfxName: 'charge_special' },
+            { animation: 'ULTIMATE_1_2', duration: 20 },
+            { animation: 'ULTIMATE_1_3', duration: 30, hitboxActive: true, damage: 25 },
+            { animation: 'ULTIMATE_1_4', duration: 30, hitboxActive: true, damage: 30 },
+            { animation: 'ULTIMATE_1_5', duration: 35, hitboxActive: true, damage: 35, shakeIntensity: 8 },
+            { animation: 'ULTIMATE_1_6', duration: 25, hitboxActive: true, damage: 30 },
+            { animation: 'ULTIMATE_1_7', duration: 30 }
+        ]
+    },
+    'ULTIMATE_2': {
+        id: 'ULTIMATE_2',
+        phases: [
+            { animation: 'ULTIMATE_2_1', duration: 20, sfxName: 'charge_special' },
+            { animation: 'ULTIMATE_2_2', duration: 20 },
+            { animation: 'ULTIMATE_2_3', duration: 30, hitboxActive: true, damage: 25 },
+            { animation: 'ULTIMATE_2_4', duration: 30, hitboxActive: true, damage: 30 },
+            { animation: 'ULTIMATE_2_5', duration: 35, hitboxActive: true, damage: 35, shakeIntensity: 8 },
+            { animation: 'ULTIMATE_2_6', duration: 25, hitboxActive: true, damage: 30 },
+            { animation: 'ULTIMATE_2_7', duration: 30 }
         ]
     }
   }

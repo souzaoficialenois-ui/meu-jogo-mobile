@@ -51,7 +51,9 @@ export const GokuBase_Beams: Record<string, CharacterBeamOverrides> = {
             "centerX": 298,
             "fullScreen": false,
             "beamSpacing": -2
-        }
+        },
+        "color": "#ffffff",
+        "name": "Beam 1"
     },
     "CHAVE_BEAM_001": {
         "start": {

@@ -1,15 +1,20 @@
+import { SpatialAudioService } from "./SpatialAudioService";
 import { MoveManager } from "./MoveManager";
 import { UltimateManager } from "./UltimateManager";
 import { BattleStateManager } from "../src/engine/dialogue/BattleStateManager";
 import { GroundEnergyManager } from "./GroundEnergyManager";
+import { LanguageManager } from "./LanguageManager";
 import { VoiceQueue } from "../src/engine/dialogue/VoiceQueue";
 import { BattleEvent } from "../src/engine/dialogue/types";
 import { CombatManager } from "./CombatManager";
 import { CharacterStateMachine, SkillType } from "./CharacterStateMachine";
 import { ClashManager } from "./ClashManager";
 import { PhysicsManager } from "./PhysicsManager";
+import { AnimationQueueManager } from "./AnimationQueueManager";
+import { InputBufferManager } from "./InputBufferManager";
 import { GameRenderer } from "./GameRenderer";
 import { MuiSpecialManager } from "./MuiSpecialManager";
+import { EffectPool } from "./EffectPool";
 import {
   Vector2,
   Rect,
@@ -85,6 +90,7 @@ import { Camera2D, CameraBounds } from "./Camera2D";
 import { TouchInputManager } from "./TouchInputManager";
 import { DummyController } from "./DummyController";
 import { AIController } from "./AIController";
+import { CpuStreakManager } from "./CpuStreakManager";
 import { ParticleManager } from "./ParticleManager";
 import { AnimationManager } from "./AnimationManager";
 import { AudioManager } from "./AudioManager";
@@ -238,6 +244,13 @@ export class GameEngine {
   public koClashBackgroundEffectId: number | null = null;
   public wave: number = 1;
 
+  // Battle End Sequence State (Sistema de Encerramento da Batalha)
+  public battleEndPhase: 'NONE' | 'DEFEAT_ANIM' | 'VICTORY_ANIM' | 'RESULT_SHOW' | 'FINISHED' = 'NONE';
+  public battleEndTimer: number = 0;
+  public battleEndWinner: 1 | 2 | null = null;
+  public battleEndResultText: string = "";
+  public battleEndResultType: 'WIN' | 'LOSE' | 'DRAW' = 'WIN';
+
   // Cinematic Beam Impact (Sistema de Impacto Final)
   public isCinematicBeamImpact: boolean = false;
   public cinematicImpactBeam: any = null;
@@ -247,9 +260,12 @@ export class GameEngine {
   public cinematicImpactTimer: number = 0;
   public cinematicImpactEffect: any = null;
 
+  private prevP1ComboMap: Map<Player, number> = new Map();
+  private prevP2ComboMap: Map<Player, number> = new Map();
+
   public matchStats = {
-    p1: { damageDealt: 0, maxCombo: 0 },
-    p2: { damageDealt: 0, maxCombo: 0 },
+    p1: { name: "", portraitUrl: "", damageDealt: 0, maxCombo: 0, totalComboHits: 0, specialAttacksUsed: 0, ultimatesUsed: 0, finalHealthPct: 100 },
+    p2: { name: "", portraitUrl: "", damageDealt: 0, maxCombo: 0, totalComboHits: 0, specialAttacksUsed: 0, ultimatesUsed: 0, finalHealthPct: 100 },
   };
 
   public stageTheme: string = "TORNEIO_DO_PODER";
@@ -377,9 +393,10 @@ export class GameEngine {
     this.camera.cameraCenterOffsetY = stageInfo?.cameraOffsetY ?? 0;
     this.inputManager = new TouchInputManager();
     this.dummyController = new DummyController();
-    this.aiController = new AIController(aiDifficulty);
+    const cpuStreak = CpuStreakManager.getStreak();
+    this.aiController = new AIController(aiDifficulty, cpuStreak);
     if (this.isP1Bot) {
-      this.p1AiController = new AIController(aiDifficulty);
+      this.p1AiController = new AIController(aiDifficulty, cpuStreak);
     }
 
     // Initialize scene coordinator
@@ -507,6 +524,31 @@ export class GameEngine {
       this.p1Team[0] || new Player(p1Start, BASE_CHARACTERS[0], true);
     this.player2 =
       this.p2Team[0] || new Player(p2Start, BASE_CHARACTERS[0], false);
+
+    this.matchStats = {
+      p1: {
+        name: this.player1.data?.name || "Player 1",
+        portraitUrl: this.player1.data?.portraitUrl || "",
+        damageDealt: 0,
+        maxCombo: 0,
+        totalComboHits: 0,
+        specialAttacksUsed: 0,
+        ultimatesUsed: 0,
+        finalHealthPct: 100,
+      },
+      p2: {
+        name: this.player2.data?.name || "Player 2",
+        portraitUrl: this.player2.data?.portraitUrl || "",
+        damageDealt: 0,
+        maxCombo: 0,
+        totalComboHits: 0,
+        specialAttacksUsed: 0,
+        ultimatesUsed: 0,
+        finalHealthPct: 100,
+      },
+    };
+    this.prevP1ComboMap.clear();
+    this.prevP2ComboMap.clear();
 
     // Initialize damage callback
     [...this.p1Team, ...this.p2Team].forEach(p => {
@@ -769,15 +811,35 @@ export class GameEngine {
       this.matchStats.p2.damageDealt += p1DamageTaken;
 
       this.p1Team.forEach((p) => {
+        const prev = this.prevP1ComboMap.get(p) || 0;
+        if (p.comboCount > prev) {
+          this.matchStats.p1.totalComboHits += (p.comboCount - prev);
+        }
+        this.prevP1ComboMap.set(p, p.comboCount);
+
         if (p.comboCount > this.matchStats.p1.maxCombo) {
           this.matchStats.p1.maxCombo = p.comboCount;
         }
       });
       this.p2Team.forEach((p) => {
+        const prev = this.prevP2ComboMap.get(p) || 0;
+        if (p.comboCount > prev) {
+          this.matchStats.p2.totalComboHits += (p.comboCount - prev);
+        }
+        this.prevP2ComboMap.set(p, p.comboCount);
+
         if (p.comboCount > this.matchStats.p2.maxCombo) {
           this.matchStats.p2.maxCombo = p.comboCount;
         }
       });
+
+      const p1CurrentHp = this.p1Team.reduce((acc, p) => acc + Math.max(0, p.hp), 0);
+      const p1MaxHp = this.p1Team.reduce((acc, p) => acc + (p.maxHp || 1000), 0);
+      this.matchStats.p1.finalHealthPct = Math.max(0, Math.min(100, Math.round((p1CurrentHp / (p1MaxHp || 1)) * 100)));
+
+      const p2CurrentHp = this.p2Team.reduce((acc, p) => acc + Math.max(0, p.hp), 0);
+      const p2MaxHp = this.p2Team.reduce((acc, p) => acc + (p.maxHp || 1000), 0);
+      this.matchStats.p2.finalHealthPct = Math.max(0, Math.min(100, Math.round((p2CurrentHp / (p2MaxHp || 1)) * 100)));
 
       // Independent, decoupled battle announcer combo state tracking
       if (this.player1) {
@@ -821,11 +883,7 @@ export class GameEngine {
     }
   };
 
-  public applyCameraOverrides(allPlayers: Player[]) {
-    // 0. Update camera limits from ground sprite if needed
-    this.updateCameraLimitsFromGround();
-
-    // Check if camera shake should be locked (FULLSCREEN ANIMATIONS REQUIRE NO SHAKE)
+  public updateShakeLocked(allPlayers: Player[]) {
     const isP1Full = this.player1.state === PlayerState.ULTIMATE || this.player1.state === PlayerState.ULTIMATE_2 || 
                     (this.player1.lastAnimKey && this.player1.data.spriteConfig?.animations?.[this.player1.lastAnimKey]?.fullScreen);
     const isP2Full = this.player2.state === PlayerState.ULTIMATE || this.player2.state === PlayerState.ULTIMATE_2 || 
@@ -833,18 +891,33 @@ export class GameEngine {
     const hasFullScreenVfx = this.visualEffects.some(v => v.active && v.fullScreen);
     
     this.camera.shakeLocked = !!(isP1Full || isP2Full || hasFullScreenVfx);
+    
+    if (this.camera.shakeLocked) {
+      // Immediately neutralize any active shake offset if we just locked it
+      this.camera.clearShake();
+    }
+  }
 
-    // Constraints check override before standard update
-    const checkAnimCam = (p: Player) => {
-      let loc = false;
-      let zoom = false;
-      let isDefaultCenter = false;
-      let anim = null;
-      if (p.lastAnimKey) {
-        anim = p.data.spriteConfig?.animations[p.lastAnimKey];
-      }
-      if (p.state === PlayerState.ULTIMATE) {
-        const animKey = resolveAnimationKey(
+  public applyCameraOverrides(allPlayers: Player[]) {
+    // 0. Update camera limits from ground sprite if needed
+    this.updateCameraLimitsFromGround();
+
+    // Check if camera shake should be locked (FULLSCREEN ANIMATIONS REQUIRE NO SHAKE)
+    this.updateShakeLocked(allPlayers);
+    
+    const isP1Full = this.camera.shakeLocked; // Using shakeLocked as a proxy for fullscreen
+    const isP2Full = false; // Not strictly needed for limits logic below if one is enough
+    const hasFullScreenVfx = this.visualEffects.some(v => v.active && v.fullScreen);
+
+    // Always keep limits enabled as requested
+    this.camera.limitsEnabled = true;
+
+    // Helper to resolve current animation config for a player
+    const getPlayerAnimationConfig = (p: Player) => {
+      let animKey = (p as any).currentPhasedMoveAnim || p.lastAnimKey;
+      let anim = animKey ? p.data.spriteConfig?.animations?.[animKey] : null;
+      if (!anim) {
+        const resolvedKey = resolveAnimationKey(
           p.data.id,
           p.state,
           p.comboType,
@@ -853,23 +926,50 @@ export class GameEngine {
           p.ultPhase,
           p.nextTransformId,
           p.attackTimer,
-          p.ultType,
+          p.ultType ?? 1,
           p.isGrounded,
           p.isDetransforming,
           p.isKOTag,
-          p.data.spriteConfig
+          p.data.spriteConfig,
+          p.wasCrouching,
+          p.stunTimer,
+          (p as any).superDashPhase,
+          p.animFinished,
+          (p as any).customSubphase,
+          (p as any).currentPhasedMoveAnim,
+          p.lastState
         );
-        anim = p.data.spriteConfig?.animations?.[animKey] || anim;
+        if (resolvedKey) {
+          anim = p.data.spriteConfig?.animations?.[resolvedKey] || null;
+          if (anim) {
+            animKey = resolvedKey;
+          }
+        }
       }
+      return { animKey, anim };
+    };
+
+    // Constraints check override before standard update
+    const checkAnimCam = (p: Player) => {
+      let loc = false;
+      let zoom = false;
+      const { anim } = getPlayerAnimationConfig(p);
       
       if (anim) {
-        if (anim.zoomType === "DEFAULT_CENTER") isDefaultCenter = true;
+        const zoomTypeStr = String(anim.zoomType || '').toUpperCase();
+        const hasExplicitZoomType = !!anim.zoomType && zoomTypeStr !== "DEFAULT_CENTER" && zoomTypeStr !== "NONE";
+        const hasFullScreen = !!anim.fullScreen;
+        const hasZoomAmount = anim.zoomAmount !== undefined;
+        const hasCameraFocus = anim.cameraFocusX !== undefined || anim.cameraFocusY !== undefined;
         
-        // Strictly check if zoomType, fullScreen, cameraFocusX, cameraFocusY, or zoomAmount is defined, and it's not DEFAULT_CENTER
-        const hasZoomType = (anim.zoomType || anim.fullScreen || anim.cameraFocusX !== undefined || anim.cameraFocusY !== undefined || anim.zoomAmount !== undefined) && anim.zoomType !== "DEFAULT_CENTER";
-        
-        if (hasZoomType && !isDefaultCenter) {
+        if (hasExplicitZoomType || hasFullScreen || hasZoomAmount || hasCameraFocus) {
           zoom = true;
+        }
+
+        if (
+          (hasCameraFocus && zoomTypeStr !== "DEFAULT_CENTER") ||
+          hasFullScreen
+        ) {
           loc = true;
         }
       }
@@ -880,10 +980,10 @@ export class GameEngine {
     const p1CamFlags = checkAnimCam(this.player1);
     const p2CamFlags = checkAnimCam(this.player2);
 
-    this.cameraHasOverride = p1CamFlags.zoom || p2CamFlags.zoom;
+    this.cameraHasOverride = p1CamFlags.zoom || p2CamFlags.zoom || p1CamFlags.loc || p2CamFlags.loc;
 
-    // We skip regular update(p1, p2) if not FIGHT phase, since intro handled it
-    if (this.introPhase === IntroPhase.FIGHT) {
+    // We update the camera every frame regardless of intro phase to ensure it doesn't get stuck
+    if (true) {
       if (this.koSequenceActive) {
         const died1 = this.player1.hp <= 0;
         const died2 = this.player2.hp <= 0;
@@ -930,16 +1030,15 @@ export class GameEngine {
     }
 
     const processAnimationCamera = (p: Player) => {
-      if (!p.lastAnimKey)
-        return { hasLocOverride: false, hasZoomOverride: false };
-      const currentAnim = p.data.spriteConfig?.animations[p.lastAnimKey];
-      if (!currentAnim)
+      const { animKey, anim: currentAnim } = getPlayerAnimationConfig(p);
+      if (!currentAnim || !animKey)
         return { hasLocOverride: false, hasZoomOverride: false };
 
-      const hasZoomType = (currentAnim.zoomType || currentAnim.fullScreen || currentAnim.cameraFocusX !== undefined || currentAnim.cameraFocusY !== undefined || currentAnim.zoomAmount !== undefined) && currentAnim.zoomType !== "DEFAULT_CENTER";
-      if (!hasZoomType) {
-        return { hasLocOverride: false, hasZoomOverride: false };
-      }
+      const zoomTypeStr = (currentAnim.fullScreen ? 'IMMEDIATE' : String(currentAnim.zoomType || '')).toUpperCase();
+      const hasZoomType = !!currentAnim.zoomType && zoomTypeStr !== "DEFAULT_CENTER" && zoomTypeStr !== "NONE";
+      const hasFullScreen = !!currentAnim.fullScreen;
+      const hasZoomAmount = currentAnim.zoomAmount !== undefined;
+      const hasCameraFocus = currentAnim.cameraFocusX !== undefined || currentAnim.cameraFocusY !== undefined;
 
       let hasLocOverride = false;
       let hasZoomOverride = false;
@@ -947,21 +1046,19 @@ export class GameEngine {
       let targetX: number | null = null;
       let targetY: number | null = null;
 
+      // Location override - ONLY when explicitly configured or fullScreen!
       if (
-        currentAnim.cameraFocusX !== undefined &&
-        currentAnim.cameraFocusY !== undefined
+        hasCameraFocus &&
+        zoomTypeStr !== "DEFAULT_CENTER"
       ) {
-        if (currentAnim.zoomType === "DEFAULT_CENTER") {
-          // Skip overriding location for default center
-          hasLocOverride = false;
-        } else {
-          targetX = p.facingRight
-            ? p.x + currentAnim.cameraFocusX
-            : p.x + p.width - currentAnim.cameraFocusX;
-          targetY = p.y + currentAnim.cameraFocusY;
-          hasLocOverride = true;
-        }
-      } else if (currentAnim.fullScreen) {
+        const focusX = currentAnim.cameraFocusX ?? (p.width / 2);
+        const focusY = currentAnim.cameraFocusY ?? (p.height / 2);
+        targetX = p.facingRight
+          ? p.x + focusX
+          : p.x + p.width - focusX;
+        targetY = p.y + focusY;
+        hasLocOverride = true;
+      } else if (hasFullScreen) {
         const sScale = currentAnim.scale || p.data.spriteConfig?.defaultScale || 1;
         const cWidth = currentAnim.frameWidth || 100;
         const cHeight = currentAnim.frameHeight || 100;
@@ -981,59 +1078,72 @@ export class GameEngine {
         hasLocOverride = true;
       }
 
-      // --- CUTSCENE OPPONENT POSITIONING --- (NEW)
+      // --- CUTSCENE OPPONENT POSITIONING ---
       if (
         currentAnim.opponentPosX !== undefined &&
         currentAnim.opponentPosY !== undefined &&
         !p["launched_opp"]
       ) {
         const opp = p === this.player1 ? this.player2 : this.player1;
-        if (!opp) return;
-        const relativeX = currentAnim.opponentPosX;
-        const relativeY = currentAnim.opponentPosY;
+        if (opp) {
+          const relativeX = currentAnim.opponentPosX;
+          const relativeY = currentAnim.opponentPosY;
 
-        // Move opponent to relative position
-        // Pos.x is centered, so we add width/2 to the target left edge
-        const targetX = p.facingRight
-          ? p.x + relativeX
-          : p.x + p.width - relativeX - opp.width;
+          const tX = p.facingRight
+            ? p.x + relativeX
+            : p.x + p.width - relativeX - opp.width;
 
-        const targetXPivot = targetX + opp.width / 2;
-        const targetYPivot = p.y + relativeY + opp.height; // Pos.y is feet, so we add height to targeted top edge
+          const targetXPivot = tX + opp.width / 2;
+          const targetYPivot = p.y + relativeY + opp.height;
 
-        if (currentAnim.opponentPosImmediate !== false) {
-          opp.pos.x = targetXPivot;
-          opp.pos.y = targetYPivot;
-          opp.velocity.x = 0;
-          opp.velocity.y = 0;
-        } else {
-          opp.pos.x = opp.pos.x + (targetXPivot - opp.pos.x) * 0.15;
-          opp.pos.y = opp.pos.y + (targetYPivot - opp.pos.y) * 0.15;
-          // Smoothly reduce velocity
-          opp.velocity.x *= 0.8;
-          opp.velocity.y *= 0.8;
-        }
+          if (currentAnim.opponentPosImmediate !== false) {
+            opp.pos.x = targetXPivot;
+            opp.pos.y = targetYPivot;
+            opp.velocity.x = 0;
+            opp.velocity.y = 0;
+          } else {
+            opp.pos.x = opp.pos.x + (targetXPivot - opp.pos.x) * 0.15;
+            opp.pos.y = opp.pos.y + (targetYPivot - opp.pos.y) * 0.15;
+            opp.velocity.x *= 0.8;
+            opp.velocity.y *= 0.8;
+          }
 
-        if (currentAnim.opponentAnim) {
-          opp.state = currentAnim.opponentAnim as PlayerState;
+          if (currentAnim.opponentAnim) {
+            opp.state = currentAnim.opponentAnim as PlayerState;
+          }
         }
       }
 
-      if (currentAnim.zoomType || currentAnim.fullScreen || currentAnim.cameraFocusX !== undefined || currentAnim.cameraFocusY !== undefined || currentAnim.zoomAmount !== undefined) {
-        let zoomVal = Number(currentAnim.zoomAmount) || 1;
-        if (currentAnim.fullScreen && currentAnim.frameWidth > 0 && currentAnim.frameHeight > 0) {
+      // Zoom calculation - ONLY when explicitly configured or fullScreen or cameraFocus!
+      if (hasZoomType || hasFullScreen || hasZoomAmount || hasCameraFocus) {
+        let zoomVal = currentAnim.zoomAmount !== undefined ? Number(currentAnim.zoomAmount) : 1.5;
+
+        if (hasFullScreen) {
+          let fw = currentAnim.frameWidth || 0;
+          let fh = currentAnim.frameHeight || 0;
+
+          if (fw === 0 || fh === 0) {
+            const gifInfo = AnimationManager.getInstance().getGifInfo(currentAnim.imageUrl || "");
+            if (gifInfo) {
+              fw = gifInfo.width;
+              fh = gifInfo.height;
+            }
+          }
+
+          if (fw > 0 && fh > 0) {
             const defScale = p.data.spriteConfig?.defaultScale || 1;
             const sScale = currentAnim.scale || defScale;
-            // Use logical screen size representing the world view matching full screen (typically around 1280x720 depending on viewport mapping)
-            const zX = this.camera.viewport.width / (currentAnim.frameWidth * sScale);
-            const zY = this.camera.viewport.height / (currentAnim.frameHeight * sScale);
-            zoomVal = Math.max(zX, zY) + 0.2;
+            const zX = this.camera.viewport.width / (fw * sScale);
+            const zY = this.camera.viewport.height / (fh * sScale);
+            zoomVal = Math.max(zX, zY);
+          }
         }
+
         const totalFrames = currentAnim.frames || 1;
         let progress = 1;
         if (totalFrames > 1) {
           const rawProgress = p.animFrame / (totalFrames - 1);
-          const zoomKey = p.lastAnimKey + "_" + p.state;
+          const zoomKey = animKey + "_" + p.state;
           if ((p as any)._lastZoomKey !== zoomKey) {
             (p as any)._lastZoomKey = zoomKey;
             (p as any)._maxZoomProgress = 0;
@@ -1047,7 +1157,6 @@ export class GameEngine {
             progress = p.animFinished ? 1 : rawProgress;
           }
         }
-        const zoomTypeStr = String(currentAnim.zoomType || 'IMMEDIATE').toUpperCase();
 
         // Ease In Out Sine for smooth, fluid motion
         const easedProgress = Math.min(
@@ -1061,216 +1170,6 @@ export class GameEngine {
         } else if (zoomTypeStr === "IMMEDIATE") {
           this.camera.zoom = zoomVal;
           targetZoom = zoomVal;
-          if (targetX === null || targetY === null) {
-            targetX = p.x + p.width / 2;
-            targetY = p.y + p.height / 2;
-            hasLocOverride = true;
-          }
-        } else if (zoomTypeStr === "ZOOM_IN") {
-          targetZoom = zoomVal;
-        } else if (
-          zoomTypeStr === "CONSERVE" ||
-          zoomTypeStr === "PRESERVE" ||
-          zoomTypeStr === "CONSERVED" ||
-          zoomTypeStr === "PRESERVED"
-        ) {
-          targetZoom = this.camera.zoom;
-        } else if (zoomTypeStr === "ZOOM_OUT") {
-          targetZoom = 1;
-        } else if (zoomTypeStr === "ZOOM_IN_OUT") {
-          const pulseProgress = Math.sin(progress * Math.PI); // 0 to 1 to 0
-          targetZoom = 1 + (zoomVal - 1) * pulseProgress;
-        } else if (zoomTypeStr === "ZOOM_PULSE") {
-          const pulseProgress = Math.abs(Math.sin(progress * Math.PI * 4)); // 4 loops
-          targetZoom = 1 + (zoomVal - 1) * pulseProgress;
-        } else if (zoomTypeStr === "ZOOM_BOUNCE") {
-          // Ease out bounce
-          const n1 = 7.5625;
-          const d1 = 2.75;
-          let bounceProg = progress;
-          if (bounceProg < 1 / d1) {
-            bounceProg = n1 * bounceProg * bounceProg;
-          } else if (bounceProg < 2 / d1) {
-            bounceProg = n1 * (bounceProg -= 1.5 / d1) * bounceProg + 0.75;
-          } else if (bounceProg < 2.5 / d1) {
-            bounceProg = n1 * (bounceProg -= 2.25 / d1) * bounceProg + 0.9375;
-          } else {
-            bounceProg =
-              n1 * (bounceProg -= 2.625 / d1) * bounceProg + 0.984375;
-          }
-          targetZoom = 1 + (zoomVal - 1) * bounceProg;
-        }
-
-        if (zoomTypeStr !== "IMMEDIATE" && zoomTypeStr !== "DEFAULT_CENTER") {
-          const lerpSpeed = currentAnim.zoomSpeed !== undefined 
-            ? Number(currentAnim.zoomSpeed) 
-            : (currentAnim.speed ? currentAnim.speed / 100 : 0.15);
-          this.camera.zoom += (targetZoom - this.camera.zoom) * lerpSpeed;
-        }
-
-        hasZoomOverride = true; // Any zoomType handles zoom, so we override the game engine ult fallback
-      }
-
-      // Camera rotation is handled globally at the end of applyCameraOverrides
-
-      if (targetX === null || targetY === null) {
-        targetX = p.x + p.width / 2;
-        targetY = p.y + p.height / 2;
-        hasLocOverride = true;
-      }
-
-      if (targetX !== null && targetY !== null) {
-        const animKeyInput = p.lastAnimKey || String(p.state);
-        const isSpecialOrUlt =
-          animKeyInput.includes("SPECIAL") ||
-          animKeyInput.includes("ESPECIAL") ||
-          animKeyInput.includes("ULT") ||
-          animKeyInput.includes("TAG_IN_KO") ||
-          p.state === PlayerState.ULTIMATE ||
-          p.state === PlayerState.TRANSFORM ||
-          p.state === PlayerState.DETRANSFORM ||
-          p.state === PlayerState.DEFUSION ||
-          p.state === PlayerState.FUSION ||
-          p.state === PlayerState.INTRO;
-
-        let camSpeed =
-          currentAnim.cameraSpeed !== undefined ? currentAnim.cameraSpeed : 1;
-        if (
-          (currentAnim.zoomType || currentAnim.fullScreen || currentAnim.cameraFocusX !== undefined || currentAnim.cameraFocusY !== undefined || currentAnim.zoomAmount !== undefined) &&
-          String(currentAnim.zoomType || 'IMMEDIATE').toUpperCase() === "IMMEDIATE"
-        ) {
-          camSpeed = 1;
-        }
-
-        if (hasLocOverride || isSpecialOrUlt) {
-          this.camera.setUnboundedPosition(targetX, targetY, camSpeed);
-        } else {
-          this.camera.setClampedPosition(targetX, targetY, camSpeed);
-        }
-      }
-
-      return { hasLocOverride, hasZoomOverride };
-    };
-
-    const p1AnimCam = processAnimationCamera(this.player1);
-    const p2AnimCam = processAnimationCamera(this.player2);
-
-    const processUltimateCamera = (
-      p: Player,
-      animCam: { hasLocOverride: boolean; hasZoomOverride: boolean },
-    ) => {
-      if (p.state !== PlayerState.ULTIMATE) return;
-      
-      // Removed camera limits from ultimates
-
-      let animKey = resolveAnimationKey(
-        p.data.id,
-        p.state,
-        p.comboType,
-        p.comboStep,
-        p.ataque,
-        p.ultPhase,
-        p.nextTransformId,
-        p.attackTimer,
-        p.ultType,
-        p.isGrounded,
-        p.isDetransforming,
-        p.isKOTag,
-      );
-
-      let targetX: number | null = null;
-      let targetY: number | null = null;
-
-      const currentAnim = p.data.spriteConfig?.animations?.[animKey];
-
-      // FALLBACK TO STANDARD CAMERA ZOOM AND FOCUS IF NO TYPE ZOOM IS SPECIFIED
-      const hasZoomType = currentAnim && (currentAnim.zoomType || currentAnim.fullScreen || currentAnim.cameraFocusX !== undefined || currentAnim.cameraFocusY !== undefined || currentAnim.zoomAmount !== undefined) && currentAnim.zoomType !== "DEFAULT_CENTER";
-      if (!hasZoomType) {
-        return;
-      }
-
-      if (currentAnim && currentAnim.zoomType === "DEFAULT_CENTER") {
-        // explicit intent to NOT track specific character, let it handle dynamically framing both
-      } else if (
-        currentAnim &&
-        currentAnim.cameraFocusX !== undefined &&
-        currentAnim.cameraFocusY !== undefined
-      ) {
-        targetX = p.facingRight
-          ? p.x + currentAnim.cameraFocusX
-          : p.x + p.width - currentAnim.cameraFocusX;
-        targetY = p.y + currentAnim.cameraFocusY;
-      } else if (currentAnim && currentAnim.fullScreen) {
-        const sScale = currentAnim.scale || p.data.spriteConfig?.defaultScale || 1;
-        const cWidth = currentAnim.frameWidth || 100;
-        const cHeight = currentAnim.frameHeight || 100;
-        const drawWidth = cWidth * sScale;
-        const drawHeight = cHeight * sScale;
-
-        const ox = currentAnim.originX !== undefined ? currentAnim.originX : p.width / 2;
-        const oy = currentAnim.originY !== undefined ? currentAnim.originY : (currentAnim.fullScreen ? p.height / 2 : p.height);
-
-        const cx = currentAnim.centerX !== undefined ? currentAnim.centerX : drawWidth / 2;
-        const cy = currentAnim.centerY !== undefined ? currentAnim.centerY : (currentAnim.fullScreen ? drawHeight / 2 : drawHeight);
-
-        targetX = p.facingRight
-          ? p.x + ox - cx + (currentAnim.offsetX || 0) + drawWidth / 2
-          : p.x + p.width - ox + cx - (currentAnim.offsetX || 0) - drawWidth / 2;
-        targetY = p.y + oy - cy + (currentAnim.offsetY || 0) + drawHeight / 2;
-      } else if (!animCam.hasLocOverride) {
-        // Fallback
-        targetX = p.x + p.width / 2;
-        targetY = p.y + p.height / 2;
-      }
-
-      if (currentAnim && (currentAnim.zoomType || currentAnim.fullScreen || currentAnim.cameraFocusX !== undefined || currentAnim.cameraFocusY !== undefined || currentAnim.zoomAmount !== undefined)) {
-        let zoomVal = Number(currentAnim.zoomAmount) || 1;
-        if (currentAnim.fullScreen && currentAnim.frameWidth > 0 && currentAnim.frameHeight > 0) {
-            const defScale = p.data.spriteConfig?.defaultScale || 1;
-            const sScale = currentAnim.scale || defScale;
-            // Use logical screen size representing the world view matching full screen
-            const zX = this.camera.viewport.width / (currentAnim.frameWidth * sScale);
-            const zY = this.camera.viewport.height / (currentAnim.frameHeight * sScale);
-            zoomVal = Math.max(zX, zY) + 0.2;
-        }
-        const zoomSpeed = Number(currentAnim.zoomSpeed) || 0.15;
-        const totalFrames = currentAnim.frames || 1;
-        let progress = 1;
-        if (totalFrames > 1) {
-          const rawProgress = p.animFrame / (totalFrames - 1);
-          const zoomKey = p.lastAnimKey + "_" + p.state;
-          if ((p as any)._lastZoomKey !== zoomKey) {
-            (p as any)._lastZoomKey = zoomKey;
-            (p as any)._maxZoomProgress = 0;
-          }
-          if (currentAnim.loop !== false) {
-            if (rawProgress > ((p as any)._maxZoomProgress || 0)) {
-              (p as any)._maxZoomProgress = rawProgress;
-            }
-            progress = Math.max(rawProgress, (p as any)._maxZoomProgress || 0);
-          } else {
-            progress = p.animFinished ? 1 : rawProgress;
-          }
-        }
-        const zoomTypeStr = String(currentAnim.zoomType || 'IMMEDIATE').toUpperCase();
-
-        // Ease In Out Sine for smooth, fluid motion
-        const easedProgress = Math.min(
-          1,
-          Math.max(0, -(Math.cos(Math.PI * progress) - 1) / 2),
-        );
-
-        let targetZoom = this.camera.zoom;
-        if (zoomTypeStr === "DEFAULT_CENTER") {
-          // Dynamic
-        } else if (zoomTypeStr === "IMMEDIATE") {
-          this.camera.zoom = zoomVal;
-          targetZoom = zoomVal;
-          if (targetX === null || targetY === null) {
-            targetX = p.x + p.width / 2;
-            targetY = p.y + p.height / 2;
-            animCam.hasLocOverride = true;
-          }
         } else if (zoomTypeStr === "ZOOM_IN") {
           targetZoom = 1 + (zoomVal - 1) * easedProgress;
         } else if (
@@ -1281,18 +1180,14 @@ export class GameEngine {
         ) {
           targetZoom = this.camera.zoom;
         } else if (zoomTypeStr === "ZOOM_OUT") {
-          if (p.animFrame === 0 && p.animTimer <= 1 && !p.animFinished) {
-            this.camera.zoom = zoomVal;
-          }
           targetZoom = zoomVal + (1 - zoomVal) * easedProgress;
         } else if (zoomTypeStr === "ZOOM_IN_OUT") {
-          const pulseProgress = Math.sin(progress * Math.PI); // 0 to 1 to 0
+          const pulseProgress = Math.sin(progress * Math.PI);
           targetZoom = 1 + (zoomVal - 1) * pulseProgress;
         } else if (zoomTypeStr === "ZOOM_PULSE") {
-          const pulseProgress = Math.abs(Math.sin(progress * Math.PI * 4)); // 4 loops
+          const pulseProgress = Math.abs(Math.sin(progress * Math.PI * 4));
           targetZoom = 1 + (zoomVal - 1) * pulseProgress;
         } else if (zoomTypeStr === "ZOOM_BOUNCE") {
-          // Ease out bounce
           const n1 = 7.5625;
           const d1 = 2.75;
           let bounceProg = progress;
@@ -1303,47 +1198,67 @@ export class GameEngine {
           } else if (bounceProg < 2.5 / d1) {
             bounceProg = n1 * (bounceProg -= 2.25 / d1) * bounceProg + 0.9375;
           } else {
-            bounceProg =
-              n1 * (bounceProg -= 2.625 / d1) * bounceProg + 0.984375;
+            bounceProg = n1 * (bounceProg -= 2.625 / d1) * bounceProg + 0.984375;
           }
           targetZoom = 1 + (zoomVal - 1) * bounceProg;
+        } else if (zoomTypeStr === "ZOOM_DRAMATIC") {
+          const initialDramaZoom = zoomVal * 1.2;
+          targetZoom = initialDramaZoom + progress * 0.2;
+        } else if (zoomTypeStr === "ZOOM_SHAKE") {
+          const shakeMod = p.animFrame % 3 === 0 ? 1 : p.animFrame % 3 === 1 ? 0.95 : 1.05;
+          targetZoom = (1 + (zoomVal - 1) * Math.min(1, progress * 3)) * shakeMod;
+        } else if (zoomTypeStr === "ZOOM_IMPACT") {
+          const snapProgress = Math.min(1, progress * 4);
+          let currentZoom = 1 + (zoomVal * 1.5 - 1) * snapProgress;
+          if (progress > 0.25) {
+            const decayProgress = (progress - 0.25) / 0.75;
+            currentZoom -= (currentZoom - zoomVal) * decayProgress;
+          }
+          targetZoom = currentZoom;
+        } else if (hasZoomAmount || hasCameraFocus) {
+          targetZoom = zoomVal;
         }
 
-        if (
-          zoomTypeStr !== "IMMEDIATE" &&
-          zoomTypeStr !== "DEFAULT_CENTER" &&
-          p.animTimer > 0
-        ) {
-          this.camera.zoom += (targetZoom - this.camera.zoom) * zoomSpeed;
+        if (zoomTypeStr === "IMMEDIATE") {
+          this.camera.zoom = targetZoom;
+        } else if (p.animTimer >= 0) {
+          const lerpSpeed = currentAnim.zoomSpeed !== undefined 
+            ? Number(currentAnim.zoomSpeed) 
+            : (currentAnim.speed ? currentAnim.speed / 100 : 0.15);
+          this.camera.zoom += (targetZoom - this.camera.zoom) * lerpSpeed;
         }
+
+        hasZoomOverride = true;
       }
 
-      if (targetX !== null && targetY !== null) {
-        let camSpeed =
-          currentAnim && currentAnim.cameraSpeed !== undefined
-            ? currentAnim.cameraSpeed
-            : 1;
-        if (
-          currentAnim &&
-          (currentAnim.zoomType || currentAnim.fullScreen || currentAnim.cameraFocusX !== undefined || currentAnim.cameraFocusY !== undefined || currentAnim.zoomAmount !== undefined) &&
-          String(currentAnim.zoomType || 'IMMEDIATE').toUpperCase() === "IMMEDIATE"
-        ) {
-          camSpeed = 1;
+      if (targetX !== null && targetY !== null && hasLocOverride) {
+        let camSpeed = currentAnim.cameraSpeed !== undefined ? Number(currentAnim.cameraSpeed) : undefined;
+        if (camSpeed === undefined) {
+          if (zoomTypeStr === "IMMEDIATE" || currentAnim.fullScreen) {
+            camSpeed = 1;
+          } else {
+            camSpeed = currentAnim.zoomSpeed !== undefined 
+              ? Number(currentAnim.zoomSpeed) 
+              : (currentAnim.speed ? currentAnim.speed / 100 : 0.15);
+          }
         }
-        this.camera.setUnboundedPosition(targetX, targetY, camSpeed);
+        this.camera.setClampedPosition(targetX, targetY, camSpeed);
       }
+
+      return { hasLocOverride, hasZoomOverride };
     };
 
-    processUltimateCamera(this.player1, p1AnimCam);
-    processUltimateCamera(this.player2, p2AnimCam);
+    const p1AnimCam = processAnimationCamera(this.player1);
+    const p2AnimCam = processAnimationCamera(this.player2);
 
     // Resolve global authoritative camera rotation immediately if 0 or not configured, otherwise lerp
     const checkRotation = (p: Player) => {
-      if (p && p.lastAnimKey) {
-        const anim = p.data.spriteConfig?.animations[p.lastAnimKey];
-        if (anim && anim.cameraRotation !== undefined) {
-          return { target: anim.cameraRotation, speed: anim.speed ? anim.speed / 100 : 0.15 };
-        }
+      const { anim } = getPlayerAnimationConfig(p);
+      if (anim && anim.cameraRotation !== undefined) {
+        return {
+          target: anim.cameraRotation,
+          speed: anim.cameraSpeed ?? (anim.speed ? anim.speed / 100 : 0.15)
+        };
       }
       return null;
     };
@@ -1363,7 +1278,11 @@ export class GameEngine {
     }
 
     if (activeRot === 0) {
-      this.camera.rotation = 0;
+      if (Math.abs(this.camera.rotation) < 0.1) {
+        this.camera.rotation = 0;
+      } else {
+        this.camera.rotation += (0 - this.camera.rotation) * activeSpeed;
+      }
     } else {
       this.camera.rotation += (activeRot - this.camera.rotation) * activeSpeed;
     }
@@ -1474,20 +1393,27 @@ export class GameEngine {
   }
 
   public sendRealtimeStateSync() {
-    if (!this.isOnline || !this.isHost || !this.networkManager || !this.networkManager.connection || !this.networkManager.connection.open) {
+    if (!this.isOnline || !this.isHost || !this.networkManager) {
       return;
     }
 
     try {
       const syncState = {
         frameCount: this.frameCount,
+        p1ActiveIdx: this.p1ActiveIdx,
+        p2ActiveIdx: this.p2ActiveIdx,
+        p1TeamHp: (this.p1Team || []).map(p => p.hp),
+        p2TeamHp: (this.p2Team || []).map(p => p.hp),
         p1: {
           x: this.player1 ? this.player1.x : 0,
           y: this.player1 ? this.player1.y : 0,
           vx: this.player1 && this.player1.velocity ? this.player1.velocity.x : 0,
           vy: this.player1 && this.player1.velocity ? this.player1.velocity.y : 0,
           hp: this.player1 ? this.player1.hp : 0,
+          maxHp: this.player1 ? this.player1.maxHp : 100,
           ki: this.player1 ? this.player1.ki : 0,
+          maxKi: this.player1 ? this.player1.maxKi : 100,
+          guard: this.player1 ? this.player1.guard : 100,
           state: this.player1 ? this.player1.state : 0,
           facingRight: this.player1 ? this.player1.facingRight : true,
           comboType: this.player1 ? this.player1.comboType : "NONE",
@@ -1496,7 +1422,8 @@ export class GameEngine {
           sparkingTimer: this.player1 ? this.player1.sparkingTimer : 0,
           hasSparked: this.player1 ? this.player1.hasSparked : false,
           animFrame: this.player1 ? this.player1.animFrame : 0,
-          lastAnimKey: this.player1 ? this.player1.lastAnimKey : ""
+          lastAnimKey: this.player1 ? this.player1.lastAnimKey : "",
+          transformLevel: this.player1 ? (this.player1 as any).transformLevel || 0 : 0
         },
         p2: {
           x: this.player2 ? this.player2.x : 0,
@@ -1504,7 +1431,10 @@ export class GameEngine {
           vx: this.player2 && this.player2.velocity ? this.player2.velocity.x : 0,
           vy: this.player2 && this.player2.velocity ? this.player2.velocity.y : 0,
           hp: this.player2 ? this.player2.hp : 0,
+          maxHp: this.player2 ? this.player2.maxHp : 100,
           ki: this.player2 ? this.player2.ki : 0,
+          maxKi: this.player2 ? this.player2.maxKi : 100,
+          guard: this.player2 ? this.player2.guard : 100,
           state: this.player2 ? this.player2.state : 0,
           facingRight: this.player2 ? this.player2.facingRight : true,
           comboType: this.player2 ? this.player2.comboType : "NONE",
@@ -1513,7 +1443,8 @@ export class GameEngine {
           sparkingTimer: this.player2 ? this.player2.sparkingTimer : 0,
           hasSparked: this.player2 ? this.player2.hasSparked : false,
           animFrame: this.player2 ? this.player2.animFrame : 0,
-          lastAnimKey: this.player2 ? this.player2.lastAnimKey : ""
+          lastAnimKey: this.player2 ? this.player2.lastAnimKey : "",
+          transformLevel: this.player2 ? (this.player2 as any).transformLevel || 0 : 0
         },
         projectiles: (this.projectiles || []).filter(p => p.active).map(p => ({
           x: p.x,
@@ -1533,10 +1464,13 @@ export class GameEngine {
         beamClashVisualProgress: this.beamClashVisualProgress,
         beamClashVisualX: (this as any).beamClashVisualX,
         beamClashP1FacingRight: this.beamClashP1FacingRight,
-        gameTimer: this.gameTimer
+        gameTimer: this.gameTimer,
+        introPhase: this.introPhase,
+        koSequenceActive: this.koSequenceActive,
+        koDefeatedPlayer: this.koDefeatedPlayer
       };
 
-      this.networkManager.connection.send({ type: 'REALTIME_STATE_SYNC', state: syncState });
+      this.networkManager.broadcast({ type: 'REALTIME_STATE_SYNC', state: syncState });
     } catch (e) {
       console.error("Error sending realtime state sync:", e);
     }
@@ -1546,6 +1480,30 @@ export class GameEngine {
     if (!state || this.isHost) return;
 
     try {
+      // Sync Team Members & Active Indices
+      if (state.p1ActiveIdx !== undefined && state.p1ActiveIdx !== this.p1ActiveIdx) {
+        if (this.p1Team && this.p1Team[state.p1ActiveIdx]) {
+          this.p1ActiveIdx = state.p1ActiveIdx;
+          this.player1 = this.p1Team[state.p1ActiveIdx];
+        }
+      }
+      if (state.p2ActiveIdx !== undefined && state.p2ActiveIdx !== this.p2ActiveIdx) {
+        if (this.p2Team && this.p2Team[state.p2ActiveIdx]) {
+          this.p2ActiveIdx = state.p2ActiveIdx;
+          this.player2 = this.p2Team[state.p2ActiveIdx];
+        }
+      }
+      if (state.p1TeamHp && Array.isArray(state.p1TeamHp)) {
+        state.p1TeamHp.forEach((hp: number, idx: number) => {
+          if (this.p1Team && this.p1Team[idx]) this.p1Team[idx].hp = hp;
+        });
+      }
+      if (state.p2TeamHp && Array.isArray(state.p2TeamHp)) {
+        state.p2TeamHp.forEach((hp: number, idx: number) => {
+          if (this.p2Team && this.p2Team[idx]) this.p2Team[idx].hp = hp;
+        });
+      }
+
       // Sync Player 1 (Host's primary)
       if (this.player1 && state.p1) {
         this.player1.x = state.p1.x;
@@ -1555,7 +1513,10 @@ export class GameEngine {
           this.player1.velocity.y = state.p1.vy;
         }
         this.player1.hp = state.p1.hp;
+        if (state.p1.maxHp !== undefined) this.player1.maxHp = state.p1.maxHp;
         this.player1.ki = state.p1.ki;
+        if (state.p1.maxKi !== undefined) this.player1.maxKi = state.p1.maxKi;
+        if (state.p1.guard !== undefined) this.player1.guard = state.p1.guard;
         this.player1.state = state.p1.state;
         this.player1.facingRight = state.p1.facingRight;
         this.player1.comboType = state.p1.comboType;
@@ -1565,9 +1526,10 @@ export class GameEngine {
         this.player1.hasSparked = state.p1.hasSparked;
         if (state.p1.animFrame !== undefined) this.player1.animFrame = state.p1.animFrame;
         if (state.p1.lastAnimKey) this.player1.lastAnimKey = state.p1.lastAnimKey;
+        if (state.p1.transformLevel !== undefined) (this.player1 as any).transformLevel = state.p1.transformLevel;
       }
 
-      // Sync Player 2 (My character on Guest client)
+      // Sync Player 2 (Guest character)
       if (this.player2 && state.p2) {
         this.player2.x = state.p2.x;
         this.player2.y = state.p2.y;
@@ -1576,7 +1538,10 @@ export class GameEngine {
           this.player2.velocity.y = state.p2.vy;
         }
         this.player2.hp = state.p2.hp;
+        if (state.p2.maxHp !== undefined) this.player2.maxHp = state.p2.maxHp;
         this.player2.ki = state.p2.ki;
+        if (state.p2.maxKi !== undefined) this.player2.maxKi = state.p2.maxKi;
+        if (state.p2.guard !== undefined) this.player2.guard = state.p2.guard;
         this.player2.state = state.p2.state;
         this.player2.facingRight = state.p2.facingRight;
         this.player2.comboType = state.p2.comboType;
@@ -1586,6 +1551,7 @@ export class GameEngine {
         this.player2.hasSparked = state.p2.hasSparked;
         if (state.p2.animFrame !== undefined) this.player2.animFrame = state.p2.animFrame;
         if (state.p2.lastAnimKey) this.player2.lastAnimKey = state.p2.lastAnimKey;
+        if (state.p2.transformLevel !== undefined) (this.player2 as any).transformLevel = state.p2.transformLevel;
       }
 
       // Sync active projectiles list
@@ -1646,6 +1612,15 @@ export class GameEngine {
       }
       if (state.gameTimer !== undefined) {
         this.gameTimer = state.gameTimer;
+      }
+      if (state.introPhase !== undefined) {
+        this.introPhase = state.introPhase;
+      }
+      if (state.koSequenceActive !== undefined) {
+        this.koSequenceActive = state.koSequenceActive;
+      }
+      if (state.koDefeatedPlayer !== undefined) {
+        this.koDefeatedPlayer = state.koDefeatedPlayer;
       }
     } catch (e) {
       console.error("Error processing realtime state sync on guest:", e);
@@ -1762,10 +1737,11 @@ export class GameEngine {
         const dx = pWait.x - pIn.x;
         const dist = Math.abs(dx);
         pIn.facingRight = dx > 0;
-        // Incoming character hits from the front
 
         const speed = 20;
-        if (dist > 80) {
+        const hasPassed = pIn.facingRight ? pIn.x >= pWait.x - 80 : pIn.x <= pWait.x + 80;
+
+        if (dist > 80 && !hasPassed) {
           pIn.velocity.x = pIn.facingRight ? speed : -speed;
           if (this.frameCount % 2 === 0) {
             this.particleManager.spawn("SPEED_LINES", pIn.x, pIn.y, 2);
@@ -1775,6 +1751,7 @@ export class GameEngine {
           this.koClashPhase = 2;
           this.koClashTimer = 0;
           pIn.velocity.x = 0;
+          pWait.velocity.x = 0;
 
           // Stop the background entry effect
           if (this.koClashBackgroundEffectId !== null) {
@@ -1808,8 +1785,6 @@ export class GameEngine {
           pIn.comboType = "TAG_CLASH";
           pIn.comboStep = 1;
           pIn.ataque = true;
-
-          // Reset animation frame so TAG_ATTACK starts from frame 0
           pIn.animFrame = 0;
           pIn.animFinished = false;
 
@@ -1820,8 +1795,6 @@ export class GameEngine {
           pWait.ataque = true;
           pWait.animFrame = 0;
           pWait.animFinished = false;
-
-          pWait.velocity.x = 0;
 
           // Apply zoom as soon as tag attack starts
           this.camera.focusOn(
@@ -1837,19 +1810,26 @@ export class GameEngine {
         pIn.velocity.y = 0;
         pWait.velocity.y = 0;
 
-        if (pIn.animFrame < 2) {
-          // Wait for the animation to reach the impact frame
-          this.koClashTimer = 0; // Don't advance the struggle timer yet
-          const centerX = (pIn.x + pWait.x) / 2 + pIn.width / 2;
-          const centerY = pIn.y + pIn.height / 2;
+        // Keep state locked in ATTACKING and prevent PhysicsManager reset
+        pIn.state = PlayerState.ATTACKING;
+        pWait.state = PlayerState.ATTACKING;
+        pIn.comboType = "TAG_CLASH";
+        pWait.comboType = "TAG_CLASH";
+        pIn.ataque = true;
+        pWait.ataque = true;
+        pIn.animFinished = false;
+        pWait.animFinished = false;
+
+        const centerX = (pIn.x + pWait.x) / 2 + pIn.width / 2;
+        const centerY = pIn.y + pIn.height / 2;
+
+        if (pIn.animFrame < 2 && this.koClashTimer < 15) {
+          // Wait briefly for the animation to reach the impact frame
           this.camera.focusOn(
             { x: centerX, y: centerY, width: 0, height: 0 },
             2.0,
           );
         } else {
-          const centerX = (pIn.x + pWait.x) / 2 + pIn.width / 2;
-          const centerY = pIn.y + pIn.height / 2;
-
           // 2) Efeito de câmera focando o centro dos personagens continuamente
           this.camera.focusOn(
             { x: centerX, y: centerY, width: 0, height: 0 },
@@ -1968,11 +1948,14 @@ export class GameEngine {
             pIn.state = PlayerState.LANDING;
             pIn.animFrame = 0;
             pIn.landingDelayTimer = 10;
-            this.particleManager.spawnDust(
-              pIn.x + pIn.width / 2,
-              pIn.y + pIn.height,
-              0,
-            );
+            if (pIn.hasJumped) {
+              this.particleManager.spawnDust(
+                pIn.x + pIn.width / 2,
+                pIn.y + pIn.height,
+                0,
+              );
+              pIn.hasJumped = false;
+            }
           }
         } else {
           if (pIn.state !== PlayerState.LAUNCHED)
@@ -1991,51 +1974,59 @@ export class GameEngine {
             pWait.state = PlayerState.LANDING;
             pWait.animFrame = 0;
             pWait.landingDelayTimer = 10;
-            this.particleManager.spawnDust(
-              pWait.x + pWait.width / 2,
-              pWait.y + pWait.height,
-              0,
-            );
+            if (pWait.hasJumped) {
+              this.particleManager.spawnDust(
+                pWait.x + pWait.width / 2,
+                pWait.y + pWait.height,
+                0,
+              );
+              pWait.hasJumped = false;
+            }
           }
         } else {
           if (pWait.state !== PlayerState.LAUNCHED)
             pWait.state = PlayerState.FALLING;
         }
 
-        if (
+        if (pIn.landingDelayTimer > 0) pIn.landingDelayTimer--;
+        if (pWait.landingDelayTimer > 0) pWait.landingDelayTimer--;
+
+        // Robust Landing Check: Accept either LANDING (timer expired) or IDLE
+        const pInLanded =
           pIn.isGrounded &&
+          (pIn.state === PlayerState.IDLE ||
+            (pIn.state === PlayerState.LANDING && pIn.landingDelayTimer <= 0));
+        const pWaitLanded =
           pWait.isGrounded &&
-          pIn.state === PlayerState.LANDING &&
-          pWait.state === PlayerState.LANDING
-        ) {
-          if (pIn.landingDelayTimer <= 0 && pWait.landingDelayTimer <= 0) {
-            // End of cinematic!
-            this.koClashActive = false;
-            this.koClashIncomingPlayer = null;
-            this.koClashWaitingPlayer = null;
+          (pWait.state === PlayerState.IDLE ||
+            (pWait.state === PlayerState.LANDING && pWait.landingDelayTimer <= 0));
 
-            // Reposition characters before resuming, preserving sides and avoiding jarring camera teleports
-            this.forcePositionsForFight(true, false);
+        const isSafetyTimeout = this.koClashTimer > 180;
 
-            this.introPhase = IntroPhase.READY;
-            this.fightAudioPlayed = true;
-            BattleAnnouncerManager.getInstance().playFight();
-            const fightSec = AudioManager.getInstance().getSFXDuration("fight");
-            this.introTimer = Math.ceil(fightSec * 60);
+        if ((pInLanded && pWaitLanded) || isSafetyTimeout) {
+          // End of cinematic!
+          this.koClashActive = false;
+          this.koClashIncomingPlayer = null;
+          this.koClashWaitingPlayer = null;
 
-            pIn.state = PlayerState.IDLE;
-            pIn.isKOTag = false;
-            pIn.invincibleTimer = 30; // Brief invincibility after clash
+          // Reposition characters before resuming, preserving sides and avoiding jarring camera teleports
+          this.forcePositionsForFight(true, false);
 
-            pWait.state = PlayerState.IDLE;
-            pWait.invincibleTimer = 30;
+          this.introPhase = IntroPhase.READY;
+          this.fightAudioPlayed = true;
+          BattleAnnouncerManager.getInstance().playFight();
+          const fightSec = AudioManager.getInstance().getSFXDuration("fight");
+          this.introTimer = Math.ceil(fightSec * 60);
 
-            // Let camera reset naturally
-            this.cameraRecoverTimer = 0;
-          } else {
-            pIn.landingDelayTimer--;
-            pWait.landingDelayTimer--;
-          }
+          pIn.state = PlayerState.IDLE;
+          pIn.isKOTag = false;
+          pIn.invincibleTimer = 30; // Brief invincibility after clash
+
+          pWait.state = PlayerState.IDLE;
+          pWait.invincibleTimer = 30;
+
+          // Let camera reset naturally
+          this.cameraRecoverTimer = 0;
         }
         break;
     }
@@ -2063,12 +2054,184 @@ export class GameEngine {
     }
   }
 
+  public handleBattleEndSequence() {
+    const p1Dead = this.p1Team.every((p) => p.hp <= 0);
+    const p2Dead = this.p2Team.every((p) => p.hp <= 0);
+    const timeOut = this.gameTimer <= 0;
+
+    const isMatchEnd = (!this.isTraining || this.gameMode === "SUMMON") && (p1Dead || p2Dead || timeOut);
+
+    if (this.battleEndPhase === 'NONE') {
+      if (!isMatchEnd || this.koSequenceActive) return;
+
+      // Initiate Step 1: Finalização da Batalha
+      this.battleEndPhase = 'DEFEAT_ANIM';
+      this.battleEndTimer = 0;
+
+      // Encerrar a lógica de combate e remover projéteis ativos
+      this.projectiles = [];
+
+      // Determine winner
+      if (p1Dead && !p2Dead) {
+        this.battleEndWinner = 2;
+      } else if (p2Dead && !p1Dead) {
+        this.battleEndWinner = 1;
+      } else if (p1Dead && p2Dead) {
+        this.battleEndWinner = null;
+      } else if (timeOut) {
+        const p1TotalHp = this.p1Team.reduce((acc, p) => acc + p.hp, 0);
+        const p2TotalHp = this.p2Team.reduce((acc, p) => acc + p.hp, 0);
+        this.battleEndWinner = p1TotalHp >= p2TotalHp ? 1 : 2;
+      }
+
+      // Set defeated player to DEFEAT state and winner to IDLE state (winner remains still!)
+      if (this.battleEndWinner === 1) {
+        this.player1.state = PlayerState.IDLE;
+        this.player1.animFrame = 0;
+        this.player1.animTimer = 0;
+
+        this.player2.state = PlayerState.DEFEAT;
+        this.player2.animFrame = 0;
+        this.player2.animTimer = 0;
+        this.player2.animFinished = false;
+        (this.player2 as any).customAnimFinishedThisFrame = false;
+      } else if (this.battleEndWinner === 2) {
+        this.player1.state = PlayerState.DEFEAT;
+        this.player1.animFrame = 0;
+        this.player1.animTimer = 0;
+        this.player1.animFinished = false;
+        (this.player1 as any).customAnimFinishedThisFrame = false;
+
+        this.player2.state = PlayerState.IDLE;
+        this.player2.animFrame = 0;
+        this.player2.animTimer = 0;
+      } else {
+        this.player1.state = PlayerState.DEFEAT;
+        this.player2.state = PlayerState.DEFEAT;
+      }
+      return;
+    }
+
+    // Lock inputs completely during all end phases
+    const emptyInput: InputState = {
+      up: false, down: false, left: false, right: false, jump: false,
+      attack: false, light: false, medium: false, heavy: false, special: false,
+      block: false, vanish: false, assist1: false, assist2: false, tag: false,
+      ultimate: false, dash: false, charge: false, transform: false, fusion: false,
+      dragonRush: false
+    };
+    this.player1.input = emptyInput;
+    this.player2.input = emptyInput;
+
+    this.projectiles = [];
+
+    this.battleEndTimer++;
+
+    const defeatedPlayer = this.battleEndWinner === 1 ? this.player2 : (this.battleEndWinner === 2 ? this.player1 : null);
+    const winningPlayer = this.battleEndWinner === 1 ? this.player1 : (this.battleEndWinner === 2 ? this.player2 : null);
+
+    // Step 2: DEFEAT_ANIM phase
+    if (this.battleEndPhase === 'DEFEAT_ANIM') {
+      if (winningPlayer) {
+        winningPlayer.state = PlayerState.IDLE; // Winner stays still!
+      }
+      if (defeatedPlayer) {
+        defeatedPlayer.state = PlayerState.DEFEAT;
+      }
+
+      const defeatDone = defeatedPlayer ? (
+        defeatedPlayer.animFinished || 
+        (defeatedPlayer as any).customAnimFinishedThisFrame ||
+        this.battleEndTimer >= 180
+      ) : (this.battleEndTimer >= 120);
+
+      if (defeatDone) {
+        // Defeat animation complete! Start Step 3: VICTORY_ANIM
+        this.battleEndPhase = 'VICTORY_ANIM';
+        this.battleEndTimer = 0;
+
+        if (winningPlayer) {
+          winningPlayer.state = PlayerState.VICTORY;
+          winningPlayer.animFrame = 0;
+          winningPlayer.animTimer = 0;
+          winningPlayer.animFinished = false;
+          (winningPlayer as any).customAnimFinishedThisFrame = false;
+          try {
+            AudioManager.getInstance().playSFX('narrator_perfect');
+          } catch (e) {}
+        }
+      }
+    } else if (this.battleEndPhase === 'VICTORY_ANIM') {
+      // Step 3: VICTORY_ANIM phase
+      if (winningPlayer) {
+        winningPlayer.state = PlayerState.VICTORY;
+      }
+      if (defeatedPlayer) {
+        defeatedPlayer.state = PlayerState.DEFEAT;
+      }
+
+      const victoryDone = winningPlayer ? (
+        winningPlayer.animFinished ||
+        (winningPlayer as any).customAnimFinishedThisFrame ||
+        this.battleEndTimer >= 210
+      ) : (this.battleEndTimer >= 120);
+
+      if (victoryDone) {
+        // Victory animation complete! Start Step 4: RESULT_SHOW
+        this.battleEndPhase = 'RESULT_SHOW';
+        this.battleEndTimer = 0;
+
+        const langMgr = LanguageManager.getInstance();
+        const p1Won = this.battleEndWinner === 1;
+
+        if (p1Won) {
+          this.battleEndResultText = langMgr.translate("you_win") || "VOCÊ VENCEU";
+          this.battleEndResultType = 'WIN';
+        } else {
+          this.battleEndResultText = langMgr.translate("you_lose") || "VOCÊ PERDEU";
+          this.battleEndResultType = 'LOSE';
+        }
+      }
+    } else if (this.battleEndPhase === 'RESULT_SHOW') {
+      // Step 4 & 5: RESULT_SHOW phase
+      // Hold overlay on screen over visible arena background for ~210 frames (~3.5s)
+      if (this.battleEndTimer >= 210) {
+        this.battleEndPhase = 'FINISHED';
+      }
+    }
+  }
+
   public simulateFrame(p1Input: InputState, p2Input: InputState) {
+    // Update shake lock BEFORE any combat logic runs to catch shakes triggered this frame
+    this.updateShakeLocked([this.player1, this.player2]);
+
+    if (this.battleEndPhase !== 'NONE') {
+      this.handleBattleEndSequence();
+      this.updateProjectiles();
+      this.updateAfterimages([
+        this.player1,
+        this.player2,
+        ...this.p1Team,
+        ...this.p2Team,
+      ]);
+      this.particleManager.update();
+      this.updateAnimations(this.player1);
+      this.updateAnimations(this.player2);
+      this.applyCameraOverrides([this.player1, this.player2]);
+      this.frameCount++;
+      this.emitGameState();
+      return;
+    }
+
     AudioManager.isInBattle = (this.introPhase === IntroPhase.FIGHT && !this.koSequenceActive);
     this.currentP1Input = p1Input;
     this.currentP2Input = p2Input;
     this.p1Team.forEach(p => p.input = p1Input);
     this.p2Team.forEach(p => p.input = p2Input);
+
+    // Process inputs into InputBufferManager
+    InputBufferManager.getInstance().processFrameInputs(1, p1Input, this.prevP1Input, this.frameCount);
+    InputBufferManager.getInstance().processFrameInputs(2, p2Input, this.prevP2Input, this.frameCount);
 
     const p1HpBefore = this.player1 ? this.player1.hp : 0;
     const p2HpBefore = this.player2 ? this.player2.hp : 0;
@@ -2174,7 +2337,9 @@ export class GameEngine {
         this.introTimer--;
         this.player1.state = PlayerState.INTRO;
         this.player2.state = PlayerState.IDLE;
-        this.camera.focusOn(this.player1, CAM_MAX_ZOOM - 0.2); // slight zoom out
+        if (!this.cameraHasOverride) {
+          this.camera.focusOn(this.player1, CAM_MAX_ZOOM - 0.2); // slight zoom out
+        }
 
         // Custom Intro for P1
         const customConfig = CHARACTER_INTROS[this.player1.data.id];
@@ -2194,21 +2359,33 @@ export class GameEngine {
           this.player1.pos.x = this.worldWidth / 2 + SPAWN_CENTER_OFFSET * -1;
           this.player1.pos.y = WORLD_HEIGHT - this.groundY;
           this.player1.state = PlayerState.INTRO;
+          if (!(this.player1 as any).phasedIntroStarted) {
+            (this.player1 as any).phasedIntroStarted = true;
+            MoveManager.getInstance().startMove(this.player1, 'INTRO');
+          }
         }
 
         // Move to P2 when P1 intro finishes
+        const p1Animations = (this.player1.data.spriteConfig?.animations || {}) as any;
+
         const hasP1Intro = !!(
-          (this.player1.data.spriteConfig?.animations as any)?.[PlayerState.INTRO] ||
-          (this.player1.data.spriteConfig?.animations as any)?.["INTRO_1"] ||
+          p1Animations[PlayerState.INTRO] ||
+          p1Animations["INTRO_1"] ||
+          p1Animations["intro"] ||
+          p1Animations["intro_1"] ||
           customConfig ||
           (this.player1.data as any).phasedMoves?.['INTRO']
         );
         
         let p1Finished = false;
-        if (this.player1.data.phasedMoves?.['INTRO'] && this.player1.currentPhasedMove === 'INTRO') {
-          p1Finished = false; // Phased move handles it
-        } else if (this.player1.data.phasedMoves?.['INTRO'] && !this.player1.currentPhasedMove) {
-          p1Finished = true; // Finished phased move
+        if (this.player1.data.phasedMoves?.['INTRO']) {
+          if (this.player1.currentPhasedMove === 'INTRO') {
+            p1Finished = false; // Phased move handles it while active
+          } else if ((this.player1 as any).phasedIntroStarted && !this.player1.currentPhasedMove) {
+            p1Finished = true; // Finished phased move
+          } else {
+            p1Finished = false;
+          }
         } else if (customConfig) {
           p1Finished = customConfig.isCustomComplete
             ? customConfig.isCustomComplete(this.player1)
@@ -2217,8 +2394,7 @@ export class GameEngine {
           // Sequential Intro Support (INTRO_1, INTRO_2, etc.)
           const currentIntroStep = this.player1.ultPhase || 1;
           const nextIntroKey = `INTRO_${currentIntroStep + 1}`;
-          const hasNextIntro = !!(this.player1.data.spriteConfig?.animations as any)?.[nextIntroKey] || 
-                               !!(this.player1.data.spriteConfig?.animations as any)?.[nextIntroKey.toLowerCase()];
+          const hasNextIntro = !!(p1Animations[nextIntroKey] || p1Animations[nextIntroKey.toLowerCase()]);
 
           const currentFinished = (this.player1.state === PlayerState.INTRO && this.player1.animFinished);
           
@@ -2237,14 +2413,17 @@ export class GameEngine {
               this.player1.animFrame = 0;
               this.player1.animTimer = 0;
               this.player1.animFinished = false;
+              this.player1.lastAnimKey = "";
               (this.player1 as any).customAnimFinishedThisFrame = false;
               p1Finished = false;
             } else {
               p1Finished = true;
             }
+          } else {
+            p1Finished = false;
           }
         } else {
-          p1Finished = this.introTimer <= 510; // Default wait if no intro
+          p1Finished = this.introTimer <= 540; // Default wait if no intro
         }
 
         if (
@@ -2261,8 +2440,16 @@ export class GameEngine {
             this.introPhase = IntroPhase.P2_INTRO;
             this.player1.state = PlayerState.IDLE;
             this.player1.animFinished = false;
+
             this.player2.state = PlayerState.INTRO;
+            this.player2.ultPhase = 1;
+            this.player2.animFrame = 0;
+            this.player2.animTimer = 0;
+            this.player2.lastAnimKey = "";
             this.player2.animFinished = false;
+            (this.player2 as any).introFinishDelay = 0;
+
+            (this.player2 as any).phasedIntroStarted = true;
             MoveManager.getInstance().startMove(this.player2, 'INTRO');
             const p2Config = CHARACTER_INTROS[this.player2.data.id];
             this.introTimer = p2Config ? p2Config.maxTime : 600; // Allow 10 seconds max for P2 intro
@@ -2275,7 +2462,9 @@ export class GameEngine {
         this.introTimer--;
         this.player1.state = PlayerState.IDLE;
         this.player2.state = PlayerState.INTRO;
-        this.camera.focusOn(this.player2, CAM_MAX_ZOOM - 0.2);
+        if (!this.cameraHasOverride) {
+          this.camera.focusOn(this.player2, CAM_MAX_ZOOM - 0.2);
+        }
 
         // Custom Intro for P2
         const customConfig = CHARACTER_INTROS[this.player2.data.id];
@@ -2294,21 +2483,33 @@ export class GameEngine {
           this.player2.pos.x = this.worldWidth / 2 + SPAWN_CENTER_OFFSET * 1;
           this.player2.pos.y = WORLD_HEIGHT - this.groundY;
           this.player2.state = PlayerState.INTRO;
+          if (!(this.player2 as any).phasedIntroStarted) {
+            (this.player2 as any).phasedIntroStarted = true;
+            MoveManager.getInstance().startMove(this.player2, 'INTRO');
+          }
         }
 
         // Move to READY when P2 intro finishes
+        const p2Animations = (this.player2.data.spriteConfig?.animations || {}) as any;
+
         const hasP2Intro = !!(
-          (this.player2.data.spriteConfig?.animations as any)?.[PlayerState.INTRO] ||
-          (this.player2.data.spriteConfig?.animations as any)?.["INTRO_1"] ||
+          p2Animations[PlayerState.INTRO] ||
+          p2Animations["INTRO_1"] ||
+          p2Animations["intro"] ||
+          p2Animations["intro_1"] ||
           customConfig ||
           (this.player2.data as any).phasedMoves?.['INTRO']
         );
 
         let p2Finished = false;
-        if (this.player2.data.phasedMoves?.['INTRO'] && this.player2.currentPhasedMove === 'INTRO') {
-          p2Finished = false;
-        } else if (this.player2.data.phasedMoves?.['INTRO'] && !this.player2.currentPhasedMove) {
-          p2Finished = true;
+        if (this.player2.data.phasedMoves?.['INTRO']) {
+          if (this.player2.currentPhasedMove === 'INTRO') {
+            p2Finished = false; // Phased move handles it while active
+          } else if ((this.player2 as any).phasedIntroStarted && !this.player2.currentPhasedMove) {
+            p2Finished = true; // Finished phased move
+          } else {
+            p2Finished = false;
+          }
         } else if (customConfig) {
           p2Finished = customConfig.isCustomComplete
             ? customConfig.isCustomComplete(this.player2)
@@ -2317,8 +2518,7 @@ export class GameEngine {
           // Sequential Intro Support for P2
           const currentIntroStep = this.player2.ultPhase || 1;
           const nextIntroKey = `INTRO_${currentIntroStep + 1}`;
-          const hasNextIntro = !!(this.player2.data.spriteConfig?.animations as any)?.[nextIntroKey] || 
-                               !!(this.player2.data.spriteConfig?.animations as any)?.[nextIntroKey.toLowerCase()];
+          const hasNextIntro = !!(p2Animations[nextIntroKey] || p2Animations[nextIntroKey.toLowerCase()]);
 
           const currentFinished = (this.player2.state === PlayerState.INTRO && this.player2.animFinished);
 
@@ -2337,14 +2537,17 @@ export class GameEngine {
               this.player2.animFrame = 0;
               this.player2.animTimer = 0;
               this.player2.animFinished = false;
+              this.player2.lastAnimKey = "";
               (this.player2 as any).customAnimFinishedThisFrame = false;
               p2Finished = false;
             } else {
               p2Finished = true;
             }
+          } else {
+            p2Finished = false;
           }
         } else {
-          p2Finished = this.introTimer <= 510;
+          p2Finished = this.introTimer <= 540;
         }
 
         if (
@@ -2557,7 +2760,7 @@ export class GameEngine {
                 "SUPER_DASH_DUST",
                 p.x + p.width / 2,
                 p.y + p.height,
-                "/Assets/efeitos/poeira/5.gif",
+                "/Assets/efeitos/poeira/super_dash.gif",
                 15,
                 false,
                 p === this.player1 ? "p1" : "p2",
@@ -2566,6 +2769,13 @@ export class GameEngine {
               );
           }
         }
+      }
+    });
+
+    // Process queued attacks sequentially after physics updates
+    allPlayers.forEach((p) => {
+      if (p.state !== PlayerState.STANDBY) {
+        AnimationQueueManager.getInstance().processQueue(p, this);
       }
     });
 
@@ -2747,8 +2957,6 @@ export class GameEngine {
         const isSparking = p.sparkingTimer > 0;
         
         if (isCharging || isTransforming || isSparking) {
-          this.camera.addScreenShake(2, 2, "PERLIN", 1);
-          
           if (isCharging) {
             try {
               AudioManager.getInstance().playLoopedSFX("ki_charge_loop", chargeLoopKey);
@@ -3021,6 +3229,15 @@ export class GameEngine {
         p.ki -= specialCost;
       }
 
+      if (type.startsWith("SPECIAL")) {
+        const isP1 = p === this.player1 || this.p1Team.includes(p);
+        if (isP1) {
+          this.matchStats.p1.specialAttacksUsed++;
+        } else {
+          this.matchStats.p2.specialAttacksUsed++;
+        }
+      }
+
       let nextStep = 0;
       if (type === "KI_BLAST") {
         const KI_BLAST_LIMITS: Record<string, { ground: number; air: number }> = {
@@ -3146,9 +3363,7 @@ export class GameEngine {
       p.attackTimer = timer;
 
       p.projectileCooldown = hasBeam ? 80 : KI_BLAST_COOLDOWN;
-      p.animFrame = 0;
-      p.animTimer = 0;
-      p.animFinished = false;
+      p.resetPhaseAnimationState();
       p.velocity.x = 0;
       if (p.data.id === "goku_mui" && p.comboType === "SPECIAL") {
         p.velocity.x = p.facingRight ? 20 : -20;
@@ -3166,8 +3381,9 @@ export class GameEngine {
         (Math.abs(opp.velocity.y) >= 5 || Math.abs(opp.velocity.x) >= 5)) ||
       (opp.state === PlayerState.FALLING && opp.stunTimer > 0);
 
-    // Basic attack combo restriction: can only proceed to next attack if previous is finished
+    // Basic attack combo restriction: can only proceed to next phase if previous animation has finished
     if (p.ataque && !p.animFinished && (type === "LIGHT" || type === "MEDIUM" || type === "HEAVY")) {
+      AnimationQueueManager.getInstance().enqueue(p, type, isCrouching);
       return;
     }
 
@@ -3185,6 +3401,9 @@ export class GameEngine {
     if (p.state === targetState || p.comboWindow > 0) {
       let maxComboStep = 5;
       if (p.data.id === "goku_mui" && type === "SPECIAL") maxComboStep = 13;
+      if (p.comboStep >= 2 && (type === "LIGHT" || type === "MEDIUM" || type === "HEAVY") && !p.autoDashUsed) {
+        if (this.executeSuperDash(p)) return;
+      }
       if (p.comboType === type && p.comboStep < maxComboStep)
         nextStep = p.comboStep + 1;
       else if (p.comboType !== type) nextStep = 0;
@@ -3224,6 +3443,20 @@ export class GameEngine {
             else if (type === "MEDIUM") phasedMoveId = isForwardHeld ? 'AIR_MEDIUM_FORWARD' : 'AIR_MEDIUM';
             else if (type === "HEAVY") phasedMoveId = p.input.up ? 'AIR_HEAVY_UP' : 'AIR_HEAVY';
         }
+
+        // Special attacks integration
+        const attackType = type as string;
+        if (attackType === "SPECIAL") phasedMoveId = 'SPECIAL_1';
+        else if (attackType === "SPECIAL_2") phasedMoveId = 'SPECIAL_2';
+        else if (attackType === "SPECIAL_3") phasedMoveId = 'SPECIAL_3';
+        else if (attackType === "SPECIAL_4") phasedMoveId = 'SPECIAL_4';
+        else if (attackType === "SPECIAL_5") phasedMoveId = 'SPECIAL_5';
+        else if (attackType === "SPECIAL_6") phasedMoveId = 'SPECIAL_6';
+        else if (attackType === "SPECIAL_7") phasedMoveId = 'SPECIAL_7';
+        else if (attackType === "SPECIAL_8") phasedMoveId = 'SPECIAL_8';
+        else if (attackType === "SPECIAL_9") phasedMoveId = 'SPECIAL_9';
+        else if (attackType === "SPECIAL_10") phasedMoveId = 'SPECIAL_10';
+        else if (attackType === "KI_BLAST") phasedMoveId = 'KI_BLAST';
     }
 
     // Try both phasedMoveId and the common version (with/without _1 suffix)
@@ -3258,9 +3491,7 @@ export class GameEngine {
     // Goku Combo Voices (Goku Base, SSJ, Blue, MUI, Black Rose)
     this.playComboVoice(p, type);
 
-    p.animFrame = 0;
-    p.animTimer = 0;
-    p.animFinished = false;
+    p.resetPhaseAnimationState();
     p.ataque = true;
     p.hasHit = false;
     p.animDelayActive = false; // Reset delay so combo animation switches immediately
@@ -3526,10 +3757,8 @@ export class GameEngine {
     // Set fusing state. Will handle transformation to Gogeta at the end of the FUSION animation.
     p.state = PlayerState.FUSION;
     p.nextTransformId = isP1 ? this.p1FusionTarget : this.p2FusionTarget;
-    p.animFrame = 0;
-    p.animTimer = 0;
+    p.resetPhaseAnimationState();
     p.comboStep = 0;
-    p.animFinished = false;
     p.attackTimer = 999;
     p.invincibleTimer = 999;
     p.velocity.x = 0;
@@ -3553,6 +3782,64 @@ export class GameEngine {
     return true;
   }
 
+  public executeSuperDash(p: Player): boolean {
+    if (p.airComboLockout && !p.isGrounded) return false;
+    if (!CharacterStateMachine.getInstance().canExecuteSkill(p, SkillType.MOVIMENTO)) {
+      return false;
+    }
+
+    const wasGroundedBeforeDash = p.isGrounded;
+    p.state = PlayerState.SUPER_DASH;
+    p.superDashActive = true;
+    p.superDashPhase = 1; // Start with Phase 1
+    p.isGrounded = false;
+    p.velocity.x = 0;
+    p.velocity.y = -6; // Small upward boost to leave the ground
+    p.attackTimer = 15; // Phase 1 duration (boost phase)
+    p.invincibleTimer = 0; // Phase 1: Vulnerable (no invincibility)
+    p.rotation = 0; // Phase 1: No rotation applied
+    p.comboWindow = 0;
+    p.ataque = true;
+    p.comboType = "SUPER_DASH";
+    p.hasHit = false;
+    p.jumpsUsed = 0;
+    p.airDashUsed = false;
+    p.airComboUsed = false;
+    p.quickDashTimer = 0;
+    p.queuedAttack = null;
+    p.clearAnimationQueue();
+    p.autoDashUsed = true;
+
+    try {
+      AudioManager.getInstance().playSFX("dash");
+    } catch (e) {}
+
+    if (wasGroundedBeforeDash) {
+      this.spawnVisualEffect(
+        "SUPER_DASH_DUST",
+        p.x + p.width / 2,
+        p.y + p.height,
+        "/Assets/efeitos/poeira/super_dash.gif",
+        15,
+        false,
+        p === this.player1 ? "p1" : "p2",
+        2.0,
+        p.facingRight
+      );
+    }
+
+    this.particleManager.spawn(
+      "AURA",
+      p.x + p.width / 2,
+      p.y + p.height / 2,
+      10,
+      p.data.color || "#ffffff",
+      { size: 5, speed: 5 },
+    );
+
+    return true;
+  }
+
   public trySuperDash(p: Player, input: InputState): boolean {
     if (p.airComboLockout && !p.isGrounded) return false;
     const prevInput = p === this.player1 ? this.prevP1Input : this.prevP2Input;
@@ -3563,65 +3850,7 @@ export class GameEngine {
     if (
       (dashPressed || comboJustPressed) && p.ki > 0
     ) {
-      if (!CharacterStateMachine.getInstance().canExecuteSkill(p, SkillType.MOVIMENTO)) {
-        return false;
-      }
-
-      const wasGroundedBeforeDash = p.isGrounded;
-      p.state = PlayerState.SUPER_DASH;
-      p.superDashActive = true;
-      p.superDashPhase = 1; // Start with Phase 1
-      p.isGrounded = false;
-      p.velocity.x = 0;
-      p.velocity.y = -6; // Small upward boost to leave the ground
-      p.attackTimer = 15; // Phase 1 duration (boost phase)
-      p.invincibleTimer = 0; // Phase 1: Vulnerable (no invincibility)
-      p.rotation = 0; // Phase 1: No rotation applied
-      p.comboWindow = 0;
-      p.ataque = true;
-      p.comboType = "SUPER_DASH";
-      p.hasHit = false;
-      p.jumpsUsed = 0;
-      p.airDashUsed = false;
-      p.airComboUsed = false;
-      p.quickDashTimer = 0;
-      p.queuedAttack = null;
-      p.autoDashUsed = true;
-
-      try {
-        AudioManager.getInstance().playSFX("dash");
-      } catch (e) {}
-
-      if (wasGroundedBeforeDash) {
-        this.spawnVisualEffect(
-          "SUPER_DASH_DUST",
-          p.x + p.width / 2,
-          p.y + p.height,
-          "/Assets/efeitos/poeira/5.gif",
-          15,
-          false,
-          p === this.player1 ? "p1" : "p2",
-          2.0,
-          p.facingRight
-        );
-      }
-
-      this.particleManager.spawn(
-        "AURA",
-        p.x + p.width / 2,
-        p.y + p.height / 2,
-        10,
-        p.data.color || "#ffffff",
-        { size: 5, speed: 5 },
-      );
-
-      try {
-        AudioManager.getInstance().playSFX("dash");
-      } catch (e) {
-        console.error("Failed to play dash SFX inside trySuperDash:", e);
-      }
-
-      return true;
+      return this.executeSuperDash(p);
     }
     return false;
   }
@@ -3685,9 +3914,7 @@ export class GameEngine {
       p.comboStep = 0;
       p.hasHit = false;
       p.dragonRushCooldown = 0; // No cooldown
-      p.animFrame = 0;
-      p.animFinished = false;
-      p.animTimer = 0;
+      p.resetPhaseAnimationState();
       p.facingRight = opp.pos.x > p.pos.x; // Face the opponent
 
       try {
@@ -3696,30 +3923,20 @@ export class GameEngine {
         console.error("Failed to play dragon_rush_inicio SFX:", drErr);
       }
 
-      // Green aura effect typical of Dragon Rush
+      // White aura effect for Dragon Rush
       this.particleManager.spawn(
         "AURA",
         p.x + p.width / 2,
         p.y + p.height / 2,
         10,
-        "#00ff00",
+        "#ffffff",
         { size: 6, speed: 4 },
       );
 
       // Custom Dragon Rush startup visual effect centered on the character hitbox
       const pCenterX = p.hitbox.x + p.hitbox.width / 2;
       const pCenterY = p.hitbox.y + p.hitbox.height / 2;
-      this.spawnVisualEffect(
-        "DRAGON_RUSH_START_EFFECT",
-        pCenterX,
-        pCenterY,
-        "/Assets/efeitos/impacto/1.gif",
-        15,
-        false,
-        p === this.player1 ? "p1" : "p2",
-        2.5,
-        p.facingRight
-      );
+      
       return true;
     }
     return false;
@@ -4000,35 +4217,25 @@ export class GameEngine {
         input.special6 && (!prevInput || !prevInput.special6);
 
       if (special6Pressed) {
-        p.queuedAttack = "SPECIAL_6";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_6", input.down);
       } else if (special5Pressed) {
-        p.queuedAttack = "SPECIAL_5";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_5", input.down);
       } else if (special4Pressed) {
-        p.queuedAttack = "SPECIAL_4";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_4", input.down);
       } else if (special3Pressed) {
-        p.queuedAttack = "SPECIAL_3";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_3", input.down);
       } else if (special2Pressed) {
-        p.queuedAttack = "SPECIAL_2";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "SPECIAL_2", input.down);
       } else if (specialPressed) {
-        p.queuedAttack = "SPECIAL";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "SPECIAL", input.down);
       } else if (kiblastPressed) {
-        p.queuedAttack = "KI_BLAST";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "KI_BLAST", input.down);
       } else if (heavyPressed) {
-        p.queuedAttack = "HEAVY";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "HEAVY", input.down);
       } else if (mediumPressed) {
-        p.queuedAttack = "MEDIUM";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "MEDIUM", input.down);
       } else if (lightPressed) {
-        p.queuedAttack = "LIGHT";
-        p.queuedAttackTimer = 20;
+        AnimationQueueManager.getInstance().enqueue(p, "LIGHT", input.down);
       }
     }
 
@@ -4036,9 +4243,18 @@ export class GameEngine {
       const isSpecialState = p.comboType && (p.comboType.startsWith("SPECIAL") || p.comboType.startsWith("ULTIMATE") || p.comboType.startsWith("METEOR") || p.comboType.startsWith("SUPER"));
       
       if (!p.animFinished || isSpecialState) {
-        // Allow magic series (combo next button) if hit
-        if (p.hasHit && !isSpecialState) {
-          if (this.handleCombatInputs(p, input)) return;
+        // Buffer attack inputs in AnimationQueueManager while current animation is playing
+        if (!isSpecialState) {
+          const lightPressed = (input.light || input.attack) && (!prevInput || (!prevInput.light && !prevInput.attack));
+          const mediumPressed = input.medium && (!prevInput || !prevInput.medium);
+          const heavyPressed = input.heavy && (!prevInput || !prevInput.heavy);
+          if (heavyPressed && p.heavyCooldownTimer <= 0) {
+            AnimationQueueManager.getInstance().enqueue(p, "HEAVY", input.down);
+          } else if (mediumPressed) {
+            AnimationQueueManager.getInstance().enqueue(p, "MEDIUM", input.down);
+          } else if (lightPressed) {
+            AnimationQueueManager.getInstance().enqueue(p, "LIGHT", input.down);
+          }
         }
 
         // Allow jump cancel if hit (only for normal attacks, not specials)
@@ -4179,26 +4395,27 @@ export class GameEngine {
             console.error("Failed to play Vegeta charging voice:", err);
           }
         }
-
-        const ownerId = p === this.player1 ? "p1" : "p2";
-        if (
-          p.isGrounded &&
-          !this.visualEffects.some(
-            (e) => e.type === "CHARGE_DUST" && e.ownerId === ownerId,
-          )
-        ) {
-          this.spawnVisualEffect(
-            "CHARGE_DUST",
-            p.x + p.width / 2,
-            p.y + p.height,
-            "/Assets/efeitos/poeira/3.gif",
-            5,
-            true,
-            ownerId,
-          );
-        }
       } else if (p.state === PlayerState.CHARGE_START && p.attackTimer <= 0) {
         p.state = PlayerState.CHARGING;
+      }
+
+      const ownerId = p === this.player1 ? "p1" : "p2";
+      if (
+        p.isGrounded &&
+        (p.state === PlayerState.CHARGE_START || p.state === PlayerState.CHARGING) &&
+        !this.visualEffects.some(
+          (e) => e.type === "CHARGE_DUST" && e.ownerId === ownerId && e.active,
+        )
+      ) {
+        this.spawnVisualEffect(
+          "CHARGE_DUST",
+          p.x + p.width / 2,
+          p.y + p.height,
+          "/Assets/efeitos/poeira/carregando_ki.gif",
+          5,
+          true,
+          ownerId,
+        );
       }
       p.velocity.x = 0;
       if (p.state === PlayerState.CHARGING) {
@@ -4487,6 +4704,8 @@ export class GameEngine {
       this.koClashIncomingPlayer = nextPlayer;
       this.koClashWaitingPlayer = opp;
       nextPlayer.isKOTag = true;
+
+      AudioManager.getInstance().playSFX("entrada_ko");
 
       // Spawn full-screen background effect for entry (behind characters)
       const entryVfx = this.spawnVisualEffect(
@@ -4816,15 +5035,18 @@ export class GameEngine {
     if (p.sparkingTimer > 0) baseSpeed *= 1.25; // Speed boost during sparking
 
     const prevInput = p === this.player1 ? this.prevP1Input : this.prevP2Input;
-    const leftPressed = left && (!prevInput || !prevInput.left);
-    const rightPressed = right && (!prevInput || !prevInput.right);
-    const dashPressed = dash && (!prevInput || !prevInput.dash);
+    const playerNum = p === this.player1 ? 1 : 2;
+    const bufferMgr = InputBufferManager.getInstance();
+
+    const leftPressed = bufferMgr.isActionTriggered(playerNum, input, prevInput, "left");
+    const rightPressed = bufferMgr.isActionTriggered(playerNum, input, prevInput, "right");
+    const dashPressed = bufferMgr.isActionTriggered(playerNum, input, prevInput, "dash");
 
     if (p.dashCooldownTimer > 0) p.dashCooldownTimer--;
     if (p.quickDashCooldownTimer > 0) p.quickDashCooldownTimer--;
 
-    let triggerDashLeft = false;
-    let triggerDashRight = false;
+    let triggerDashLeft = bufferMgr.checkAndConsume(playerNum, "quickDashLeft");
+    let triggerDashRight = bufferMgr.checkAndConsume(playerNum, "quickDashRight");
 
     const DOUBLE_TAP_WINDOW = 250; // ms
     const now = Date.now();
@@ -4850,26 +5072,37 @@ export class GameEngine {
       }
     }
 
+    // Check if player can perform Double Tap (must not be currently dashing and 0.3s cooldown must have passed)
+    const canQuickDash = p.quickDashTimer <= 0 && p.quickDashCooldownTimer <= 0;
+    if (!canQuickDash) {
+      triggerDashLeft = false;
+      triggerDashRight = false;
+    }
+
+    const ownerId = p === this.player1 ? "p1" : "p2";
+
     // 3. Trigger Quick Dash Left
     if (triggerDashLeft) {
       if (p.isGrounded || !p.airDashUsed) {
         p.quickDashTimer = 10;
-        p.quickDashCooldownTimer = 0;
         p.quickDashDir = "left";
         if (!p.isGrounded) {
           p.airDashUsed = true;
           p.airComboUsed = false;
         }
         if (p.isGrounded) {
-          this.particleManager.spawnDust(p.x + p.width / 2, p.y + p.height, 1);
+          // Remove any previous DOUBLE_TAP_DUST for this player so strictly only 1 dust sprite is created
+          this.visualEffects = this.visualEffects.filter(
+            (e) => !(e.type === "DOUBLE_TAP_DUST" && e.ownerId === ownerId)
+          );
           this.spawnVisualEffect(
             "DOUBLE_TAP_DUST",
             p.x + p.width / 2,
             p.y + p.height,
-            "/Assets/efeitos/poeira/2.gif",
+            "/Assets/efeitos/poeira/double_tap.gif",
             12,
             false,
-            "",
+            ownerId,
             2.5,
             false, // Facing left
           );
@@ -4881,22 +5114,24 @@ export class GameEngine {
     if (triggerDashRight) {
       if (p.isGrounded || !p.airDashUsed) {
         p.quickDashTimer = 10;
-        p.quickDashCooldownTimer = 0;
         p.quickDashDir = "right";
         if (!p.isGrounded) {
           p.airDashUsed = true;
           p.airComboUsed = false;
         }
         if (p.isGrounded) {
-          this.particleManager.spawnDust(p.x + p.width / 2, p.y + p.height, -1);
+          // Remove any previous DOUBLE_TAP_DUST for this player so strictly only 1 dust sprite is created
+          this.visualEffects = this.visualEffects.filter(
+            (e) => !(e.type === "DOUBLE_TAP_DUST" && e.ownerId === ownerId)
+          );
           this.spawnVisualEffect(
             "DOUBLE_TAP_DUST",
             p.x + p.width / 2,
             p.y + p.height,
-            "/Assets/efeitos/poeira/2.gif",
+            "/Assets/efeitos/poeira/double_tap.gif",
             12,
             false,
-            "",
+            ownerId,
             2.5,
             true, // Facing right
           );
@@ -4922,13 +5157,14 @@ export class GameEngine {
           p.x + p.width / 2,
           p.y + p.height / 2,
           1,
-          p.data.color || "#ffffff",
+          "#ffffff",
           { size: 3, speed: 0 },
         );
       }
 
       if (p.quickDashTimer === 0) {
         p.velocity.x *= 0.5; // Decelerate gently when dash ends
+        p.quickDashCooldownTimer = 18; // 0.3 seconds cooldown (18 frames at 60 FPS) after quick dash finishes!
       }
       return;
     }
@@ -5008,7 +5244,7 @@ export class GameEngine {
           "DASH_DUST",
           p.x + p.width / 2,
           p.y + p.height,
-          "/Assets/efeitos/poeira/1.gif",
+          "/Assets/efeitos/poeira/super_dash.gif",
           5,
           false,
           p === this.player1 ? "p1" : "p2",
@@ -5160,6 +5396,7 @@ export class GameEngine {
         p.velocity.y = wasGrounded ? -JUMP_FORCE : -(JUMP_FORCE * 0.5);
         p.isGrounded = false;
         p.state = PlayerState.JUMPING;
+        p.hasJumped = true;
         try {
           AudioManager.getInstance().playSFX("jump");
         } catch (jumpErr) {
@@ -5170,7 +5407,7 @@ export class GameEngine {
             "JUMP_DUST",
             p.x + p.width / 2,
             p.y + p.height,
-            "/Assets/efeitos/poeira/4.gif",
+            "/Assets/efeitos/poeira/pulo.gif",
             12,
             false,
             p === this.player1 ? "p1" : "p2",
@@ -5270,34 +5507,29 @@ export class GameEngine {
       }
     }
 
-    // Check if the effect is a combat hit effect (COMBO_HIT, COMBO_HIT_HEAVY, or contains combo/hit)
-    const isCombatEffect = 
+    // Check if the effect is a true attack hit impact effect (COMBO_HIT, COMBO_HIT_MEDIUM, COMBO_HIT_HEAVY, COMBO_HIT_BEANS, DEFESA_QUEBRADA)
+    const isHitImpactEffect = 
       type === "COMBO_HIT" || 
+      type === "COMBO_HIT_MEDIUM" ||
       type === "COMBO_HIT_HEAVY" || 
-      type.includes("COMBO") || 
-      (imageUrl && (imageUrl.includes("efeitos/impacto") || imageUrl.includes("impacto")));
+      type === "COMBO_HIT_BEANS" ||
+      type === "DEFESA_QUEBRADA";
 
-    if (isCombatEffect) {
-      // Direct requirement: Sprites de Efeito de colisão criado quando personagem recebe dano só pode ser criado outro assim que o anterior seja destruído de cena!
-      const hasActiveCombatEffect = this.visualEffects.some(effect => 
-        effect.active && (
-          effect.type === "COMBO_HIT" || 
-          effect.type === "COMBO_HIT_HEAVY" || 
-          (effect.type && effect.type.includes("COMBO")) ||
-          (effect.imageUrl && (effect.imageUrl.includes("efeitos/impacto") || effect.imageUrl.includes("impacto")))
-        )
-      );
-      if (hasActiveCombatEffect) {
-        return; // Only spawn one at a time, wait until the previous one is destroyed from the scene
-      }
+    let effectLayer: 'FRONT' | 'BACK' | undefined = undefined;
 
-      // Find the closest active player currently on screen to center the effect exactly on their hitbox center
+    if (isHitImpactEffect) {
+      // Requirement: Recycle the previous hit impact effect in scene upon creating a new hit impact
+      EffectPool.getInstance().recycleActiveImpactEffects(this.visualEffects);
+
+      // Hit impact effects must render on front layer in front of characters
+      effectLayer = 'FRONT';
+
+      // Find the closest active player currently on screen to center the effect and adjust scale proportionally
       const activePlayers = [this.player1, this.player2].filter(Boolean);
       if (activePlayers.length > 0) {
         let closestPlayer = activePlayers[0];
         let minDist = Infinity;
         for (const p of activePlayers) {
-          // Calculate distance to the physical center of the player's hitbox
           const box = p.hitbox;
           const pCenterX = box.x + box.width / 2;
           const pCenterY = box.y + box.height / 2;
@@ -5308,21 +5540,21 @@ export class GameEngine {
           }
         }
         
-        // Reposition at the perfect center of the character's hitbox
-        const box = closestPlayer.hitbox;
-        finalX = box.x + box.width / 2;
-        finalY = box.y + box.height / 2;
+        // Scale proportional to character height, bounded so impact effect is not too large
+        const charHeight = closestPlayer.height || 90;
+        const charScaleRatio = Math.min(1.15, Math.max(0.75, charHeight / 95));
+        scale = Math.min(1.8, scale * charScaleRatio);
+      } else {
+        scale = Math.min(1.8, scale);
       }
     }
 
-    const effect = {
+    const effect = EffectPool.getInstance().acquire({
       id: this.nextVisualEffectId++,
       x: finalX,
       y: finalY,
       imageUrl,
       frames,
-      animFrame: 0,
-      animTimer: 0,
       animSpeed,
       frameWidth,
       frameHeight,
@@ -5330,13 +5562,12 @@ export class GameEngine {
       loop,
       scale,
       facingRight,
-      active: true,
-      ownerId: ownerId as any,
-      type: type as any,
+      ownerId,
+      type,
       configKey,
-      fullScreen: false as boolean | undefined,
-      layer: undefined as 'FRONT' | 'BACK' | undefined,
-    };
+      fullScreen: false,
+      layer: effectLayer,
+    });
     this.visualEffects.push(effect);
     return effect;
   }
@@ -5790,7 +6021,7 @@ export class GameEngine {
               if (maxAllowedWidth < beam.width) {
                 beam.width = Math.max(0, maxAllowedWidth);
                 
-                if (this.frameCount % 5 === 0) {
+                if (this.frameCount % 15 === 0) {
                   this.particleManager.spawnHitSpark(genki.gx - genki.radius, beam.y, false);
                   this.camera.addScreenShake(5, 4, "IMPULSE", 0.5);
                   AudioManager.getInstance().playSFX("hit");
@@ -5801,7 +6032,7 @@ export class GameEngine {
               if (maxAllowedWidth < beam.width) {
                 beam.width = Math.max(0, maxAllowedWidth);
                 
-                if (this.frameCount % 5 === 0) {
+                if (this.frameCount % 15 === 0) {
                   this.particleManager.spawnHitSpark(genki.gx + genki.radius, beam.y, false);
                   this.camera.addScreenShake(5, 4, "IMPULSE", 0.5);
                   AudioManager.getInstance().playSFX("hit");
@@ -5862,17 +6093,18 @@ export class GameEngine {
         }
       }
 
-      if (effect.type === "KAME_GENKI_COLLISION") {
-        const target = effect.ownerId === "p1" ? this.player1 : this.player2;
+      if (effect.type === "KAME_GENKI_COLLISION" || effect.type === "COMBO_HIT_BEANS" || effect.type === "HIT_BEAM") {
+        const target = effect.ownerId === "p1" ? this.player1 : (effect.ownerId === "p2" ? this.player2 : null);
         if (target) {
           const box = target.hitbox;
           effect.x = box.x + box.width / 2;
           effect.y = box.y + box.height / 2;
         }
 
-        // Keep active while hit frame exists and receives updates
+        // Keep active while source projectile is active and receiving hits
+        const sourceProj = (effect as any).sourceProjectile;
         const lastHit = (effect as any).lastHitFrame || 0;
-        if (this.frameCount - lastHit > 5) {
+        if ((sourceProj && sourceProj.active === false) || (this.frameCount - lastHit > 6)) {
           effect.active = false;
         }
       }
@@ -5895,6 +6127,7 @@ export class GameEngine {
       }
 
       if (!effect.active) {
+        EffectPool.getInstance().release(effect);
         this.visualEffects.splice(i, 1);
       }
     }
@@ -6201,7 +6434,7 @@ export class GameEngine {
             }
           }
 
-          // check if projectile is a Genkidama or a Kamehameha (Beams/Giant blasts etc)
+          // check if projectile is a Genkidama, Beam, or Fecho de energia
           const isGenkidamaOrKame =
             p.isBeam ||
             p.isGiantBlast ||
@@ -6209,7 +6442,9 @@ export class GameEngine {
               p.beamFamilyId.includes("GENKIDAMA") ||
               p.beamFamilyId.includes("BEAM") ||
               p.beamFamilyId.includes("FECHO") ||
-              p.beamFamilyId.includes("SPECIAL")
+              p.beamFamilyId.includes("SPECIAL") ||
+              p.beamFamilyId.includes("CHAVE_BEAM") ||
+              p.beamFamilyId.includes("KAMEHAMEHA")
             )) ||
             (p.customAnimData?.name && (
               p.customAnimData.name.includes("Kamehameha") ||
@@ -6218,28 +6453,40 @@ export class GameEngine {
 
           if (isGenkidamaOrKame) {
             const targetId = opponent === this.player1 ? "p1" : "p2";
+            const projId = (p as any).id || p;
             let existingEffect = this.visualEffects.find(
-              (eff) => eff.type === "KAME_GENKI_COLLISION" && eff.ownerId === targetId
+              (eff) => (eff.type === "KAME_GENKI_COLLISION" || eff.type === "COMBO_HIT_BEANS" || eff.type === "HIT_BEAM") &&
+                        eff.ownerId === targetId &&
+                        (eff as any).sourceProjectileId === projId
             );
 
-            if (!existingEffect) {
-              const oppCenterX = hOpp.x + hOpp.width / 2;
-              const oppCenterY = hOpp.y + hOpp.height / 2;
-              this.spawnVisualEffect(
-                "KAME_GENKI_COLLISION",
+            const oppCenterX = hOpp.x + hOpp.width / 2;
+            const oppCenterY = hOpp.y + hOpp.height / 2;
+
+            if (!existingEffect || !existingEffect.active) {
+              existingEffect = this.spawnVisualEffect(
+                "COMBO_HIT_BEANS",
                 oppCenterX,
                 oppCenterY,
-                "/Assets/efeitos/impacto/2.gif",
-                30,
-                true, // Set loop to true to keep it playing until the hits end
+                "/Assets/efeitos/impacto/hit_beans.gif",
+                12,
+                true, // Continuous loop attached to opponent during beam/genkidama/fecho impact
                 targetId,
-                2.5,
-                opponent.facingRight
+                2.0,
+                p.vx > 0
               );
-              existingEffect = this.visualEffects[this.visualEffects.length - 1];
+              if (existingEffect) {
+                existingEffect.layer = "FRONT";
+                (existingEffect as any).sourceProjectile = p;
+                (existingEffect as any).sourceProjectileId = projId;
+              }
             }
 
             if (existingEffect) {
+              existingEffect.x = oppCenterX;
+              existingEffect.y = oppCenterY;
+              existingEffect.layer = "FRONT";
+              existingEffect.active = true;
               (existingEffect as any).lastHitFrame = this.frameCount;
             }
           }
@@ -6470,17 +6717,8 @@ export class GameEngine {
               );
             }
 
-            // Spawn the intense Kamehameha collision/explosion GIF
-            this.spawnVisualEffect(
-              "EXPLOSION",
-              opponent.x + opponent.width / 2,
-              opponent.y + opponent.height / 2,
-              "/Assets/efeitos/impacto/2.gif",
-              30,
-              false,
-              undefined,
-              2.5
-            );
+            // Spawn energy explosion particles on beam deflection
+            this.particleManager.spawn("ENERGY", opponent.x + opponent.width / 2, opponent.y + opponent.height / 2, 20, "#00ffff");
 
             // 6) Exclusive Perfect Guard SFX
             try {
@@ -6595,7 +6833,7 @@ export class GameEngine {
               p.active = false;   // Common projectile destroyed on block
             }
 
-            const chip = hitDamage * chipPercent;
+            const chip = hitDamage * owner.attackMult * chipPercent;
             opponent.takeDamage(chip);
             this.camera.addScreenShake(5, 3, "IMPULSE", 0.5);
             opponent.ki = Math.min(
@@ -6654,7 +6892,8 @@ export class GameEngine {
               opponent.velocity.x = p.vx > 0 ? 15 : -15; // Forced recoil on guard break!
               const collisionX = (p.vx > 0 || (p as any).initialFacingRight) ? opponent.x : opponent.x + opponent.width;
               const collisionY = p.y + p.height / 2;
-              this.particleManager.spawnHitSpark(collisionX, collisionY, true);
+              this.particleManager.spawnGuardBreak(opponent.x + opponent.width / 2, opponent.y + opponent.height / 2);
+              this.particleManager.spawnHitSpark(collisionX, collisionY, 'heavy');
               this.camera.addScreenShake(15, 12, "IMPULSE", 1);
             }
           } else {
@@ -6737,13 +6976,24 @@ export class GameEngine {
             if (owner.comboCount > 1 && p.beamFamilyId !== "FECHO_5" && !p.isBeam && !p.isGiantBlast) {
               opponent.pos.y = owner.pos.y;
             }
-            const collisionX = (p.vx > 0 || (p as any).initialFacingRight) ? opponent.x : opponent.x + opponent.width;
-            const collisionY = p.y + p.height / 2;
-            this.particleManager.spawnHitSpark(
-              collisionX,
-              collisionY,
-              false,
-            );
+            const isBeamGenkidamaOrFecho = p.isBeam || p.isGiantBlast || (p.beamFamilyId && (
+              p.beamFamilyId.includes("GENKIDAMA") ||
+              p.beamFamilyId.includes("BEAM") ||
+              p.beamFamilyId.includes("FECHO") ||
+              p.beamFamilyId.includes("CHAVE_BEAM") ||
+              p.beamFamilyId.includes("KAMEHAMEHA") ||
+              p.beamFamilyId.includes("SPECIAL")
+            ));
+
+            if (!isBeamGenkidamaOrFecho) {
+              const collisionX = (p.vx > 0 || (p as any).initialFacingRight) ? opponent.x : opponent.x + opponent.width;
+              const collisionY = p.y + p.height / 2;
+              this.particleManager.spawnHitSpark(
+                collisionX,
+                collisionY,
+                false,
+              );
+            }
           }
           break; // Projectile destroyed, don't test other targets
         }
@@ -6853,7 +7103,10 @@ export class GameEngine {
             } catch (landErr) {
               console.error("Failed to play land SFX:", landErr);
             }
-            this.particleManager.spawnDust(p.pos.x, p.pos.y, 0);
+            if (p.hasJumped) {
+              this.particleManager.spawnDust(p.pos.x, p.pos.y, 0);
+              p.hasJumped = false;
+            }
             if (
               p.state !== PlayerState.INTRO &&
               p.state !== PlayerState.TAG_IN &&
@@ -7045,7 +7298,7 @@ export class GameEngine {
           p2.velocity.x = p1.pos.x < p2.pos.x ? 2 : -2; // Drift away slowly (stays close)
           p2.isGrounded = false;
           p2.stunTimer = 40;
-          p2.takeDamage(15);
+          p2.takeDamage(15, p1);
         } else {
           p2.stunTimer = 15;
           p2.velocity.x = p1.pos.x < p2.pos.x ? 4 : -4; // Push back on block
@@ -7072,7 +7325,7 @@ export class GameEngine {
           p1.velocity.x = p2.pos.x < p1.pos.x ? 2 : -2; // Drift away slowly (stays close)
           p1.isGrounded = false;
           p1.stunTimer = 40;
-          p1.takeDamage(15);
+          p1.takeDamage(15, p2);
         } else {
           p1.stunTimer = 15;
           p1.velocity.x = p2.pos.x < p1.pos.x ? 4 : -4; // Push back on block
@@ -7113,7 +7366,7 @@ export class GameEngine {
           p1.velocity.y = -15;
           p1.velocity.x = p1.pos.x < p2.pos.x ? 5 : -5; // Move towards opponent!
 
-          p2.takeDamage(15);
+          p2.takeDamage(15, p1);
           p2.state = PlayerState.HIT;
           p2.ataque = false;
           p2.stunTimer = 40; // Long enough for air combo
@@ -7133,7 +7386,7 @@ export class GameEngine {
           p2.velocity.y = -15;
           p2.velocity.x = p2.pos.x < p1.pos.x ? 5 : -5;
 
-          p1.takeDamage(15);
+          p1.takeDamage(15, p2);
           p1.state = PlayerState.HIT;
           p1.ataque = false;
           p1.stunTimer = 40;
@@ -7181,7 +7434,7 @@ export class GameEngine {
           ) {
             p2.velocity.x = p1.pos.x < p2.pos.x ? 12 : -12;
             p2.velocity.y = -4;
-            p2.takeDamage(2);
+            p2.takeDamage(2, p1);
             p2.state = PlayerState.HIT;
             p2.stunTimer = 15;
             this.particleManager.spawnHitSpark(
@@ -7208,7 +7461,7 @@ export class GameEngine {
           ) {
             p1.velocity.x = p2.pos.x < p1.pos.x ? 12 : -12;
             p1.velocity.y = -4;
-            p1.takeDamage(2);
+            p1.takeDamage(2, p2);
             p1.state = PlayerState.HIT;
             p1.stunTimer = 15;
             this.particleManager.spawnHitSpark(
@@ -7342,6 +7595,12 @@ export class GameEngine {
   }
 
   public emitGameState() {
+    if (this.camera) {
+      SpatialAudioService.getInstance().update(
+        this.camera.position.x,
+        this.camera.viewport ? this.camera.viewport.width / 2 : 640
+      );
+    }
     const debugInfo = this.isTraining
       ? {
           p1Pos: {
@@ -7419,38 +7678,15 @@ export class GameEngine {
     const p2Dead = this.p2Team.every((p) => p.hp <= 0);
     const timeOut = this.gameTimer <= 0;
 
-    // Phase Completion for Victory/Defeat animations
-    let p1Done = true;
-    let p2Done = true;
-    
-    if (p1Dead) {
-      p1Done = (this.player1.state === PlayerState.DEFEAT && 
-               ((this.player1 as any).customAnimFinishedThisFrame || this.player1.animFinished)) ||
-               (this.player1 as any).stateDuration > 300;
-    }
-    if (p2Dead) {
-      p2Done = (this.player2.state === PlayerState.DEFEAT && 
-               ((this.player2 as any).customAnimFinishedThisFrame || this.player2.animFinished)) ||
-               (this.player2 as any).stateDuration > 300;
-    }
-    
-    // Check winner pose completion
-    if (!p1Dead && p2Dead) {
-      p1Done = (this.player1.state === PlayerState.VICTORY && 
-               ((this.player1 as any).customAnimFinishedThisFrame || this.player1.animFinished)) ||
-               (this.player1 as any).stateDuration > 300;
-    } else if (p1Dead && !p2Dead) {
-      p2Done = (this.player2.state === PlayerState.VICTORY && 
-               ((this.player2 as any).customAnimFinishedThisFrame || this.player2.animFinished)) ||
-               (this.player2 as any).stateDuration > 300;
+    const isMatchEnd = (!this.isTraining || this.gameMode === "SUMMON") && (p1Dead || p2Dead || timeOut);
+
+    if (isMatchEnd && !this.koSequenceActive && this.battleEndPhase === 'NONE') {
+      this.handleBattleEndSequence();
     }
 
-    const gameOver =
-      (!this.isTraining || this.gameMode === "SUMMON") &&
-      !this.koSequenceActive &&
-      (timeOut || ((p1Dead || p2Dead) && p1Done && p2Done));
+    const gameOver = (this.battleEndPhase === 'FINISHED');
 
-    if (this.frameCount % 2 === 0 || gameOver || this.isBeamClashActive) {
+    if (this.frameCount % 2 === 0 || gameOver || this.isBeamClashActive || this.battleEndPhase !== 'NONE') {
       const isUlting =
         this.player1.state === PlayerState.ULTIMATE ||
         this.player2.state === PlayerState.ULTIMATE ||
@@ -7464,9 +7700,9 @@ export class GameEngine {
         this.player2.state === PlayerState.FUSION ||
         this.player1.state === PlayerState.DEFUSION ||
         this.player2.state === PlayerState.DEFUSION;
-      const isKOSwapActive = this.koSequenceActive || !!this.koDefeatedPlayer || this.player1.isKOTag || this.player2.isKOTag;
-      let winner: 1 | 2 | null = null;
-      if (!this.isTraining || this.gameMode === "SUMMON") {
+      const isKOSwapActive = this.koSequenceActive || !!this.koDefeatedPlayer || this.player1.isKOTag || this.player2.isKOTag || this.koClashActive;
+      let winner: 1 | 2 | null = this.battleEndWinner;
+      if (winner === null && (!this.isTraining || this.gameMode === "SUMMON")) {
         if (p1Dead) winner = 2;
         else if (p2Dead) winner = 1;
         else if (timeOut) {
@@ -7514,6 +7750,9 @@ export class GameEngine {
         beamClashProgress: this.beamClashProgress,
         beamClashTimer: this.beamClashTimer,
         beamClashP1FacingRight: this.beamClashP1FacingRight,
+        battleEndPhase: this.battleEndPhase,
+        battleEndResultText: this.battleEndResultText,
+        battleEndResultType: this.battleEndResultType,
       });
     }
 
@@ -7697,8 +7936,8 @@ export class GameEngine {
         checkCanStartKOSequence(this.player1) &&
         checkCanStartKOSequence(this.player2);
 
-      // Wait for timer AND for characters to finish their actions
-      if (this.koSequenceTimer <= 0 && bothDone) {
+      // Wait for timer AND for characters to finish their actions (with safety timeout after 2 seconds)
+      if (this.koSequenceTimer <= 0 && (bothDone || this.koSequenceTimer < -120)) {
         if (
           this.koDefeatedPlayer === "p1" ||
           this.koDefeatedPlayer === "both"
@@ -8295,44 +8534,17 @@ export class GameEngine {
         animKey = PlayerState.IDLE;
       }
 
-      // Track animation delay to pre-play audios 2 frames before animation start
       if (animKey !== p.lastAnimKey) {
-        if (p.lastAnimKey && !p.animDelayActive) {
-          p.animDelayActive = true;
-          p.animDelayTargetKey = animKey;
-          p.animDelayTimer = 2; // Keep drawing the old animation for 2 frames
-          p.animDelayTargetAnimObj = anim;
-        }
-      }
-
-      if (p.animDelayActive) {
-        p.animDelayTimer--;
-        // Override animKey and anim to hold/continue drawing the old animation
-        if (p.lastAnimKey) {
-          animKey = p.lastAnimKey;
-          anim = config.animations[animKey] || config.animations[PlayerState.IDLE];
-        }
-        if (p.animDelayTimer <= 0) {
-          p.animDelayActive = false;
-          // Apply the new animation key switch now
-          p.animFrame = 0;
-          p.animTimer = 0;
-          p.lastAnimKey = p.animDelayTargetKey;
-          p.animFinished = false;
-          animKey = p.animDelayTargetKey;
-          anim = p.animDelayTargetAnimObj;
-        }
-      } else {
-        if (animKey !== p.lastAnimKey) {
-          p.animFrame = 0;
-          p.animTimer = 0;
-          p.lastAnimKey = animKey;
-          p.animFinished = false;
-        }
+        p.animFrame = 0;
+        p.animTimer = 0;
+        p.lastAnimKey = animKey;
+        p.animFinished = false;
+        p.animDelayActive = false;
+        (p as any).customAnimFinishedThisFrame = false;
       }
 
       if (anim) {
-        // Force dragon rush animations to be non-looping
+        // Force dragon rush and intro animations to be non-looping
         const lowerKey = animKey.toLowerCase();
         const isDragonRushKey = lowerKey.includes("dragon_rush") || lowerKey.includes("dragon_dash");
         const isDragonRushState = 
@@ -8340,7 +8552,10 @@ export class GameEngine {
           p.state === PlayerState.DRAGON_COMBO || 
           p.state === PlayerState.DRAGON_DASH_FOLLOW;
         
-        if (isDragonRushKey || isDragonRushState) {
+        const isIntroKey = lowerKey.includes("intro");
+        const isIntroState = p.state === PlayerState.INTRO;
+
+        if (isDragonRushKey || isDragonRushState || isIntroKey || isIntroState) {
           anim.loop = false;
         }
 
@@ -8392,6 +8607,9 @@ export class GameEngine {
             p.animFrame >= anim.frames - 1 &&
             !p.isGrounded;
 
+          const ownerId_ = p === this.player1 ? "p1" : "p2";
+          const hasActiveBeam = this.projectiles.some(b => b.ownerId === ownerId_ && b.isBeam && b.active);
+
           const shouldFreeze =
             (anim.freezeFrame !== undefined &&
               p.animFrame === anim.freezeFrame) ||
@@ -8401,14 +8619,18 @@ export class GameEngine {
             isGokuBlackRoseIntro1Freeze ||
             isFriezaUlt1Freeze ||
             isGokuBaseUlt2Freeze ||
-            (!!(p as any).beamSpawned && p.animFrame >= anim.frames - 1);
+            (!!(p as any).beamSpawned && hasActiveBeam && p.animFrame >= anim.frames - 1);
 
           let frameSpeed = anim.speed ?? ANIMATION_SPEED;
           const fmDelay = FrameManager.getInstance().getFrameDelay(
             anim,
             p.animFrame,
           );
-          if (fmDelay > 0) {
+          if (anim.useGifDelay && fmDelay > 0) {
+            frameSpeed = fmDelay;
+          } else if (anim.speed !== undefined) {
+            frameSpeed = anim.speed;
+          } else if (fmDelay > 0) {
             frameSpeed = fmDelay;
           }
 
@@ -8417,17 +8639,7 @@ export class GameEngine {
             if (!p.animFinished || anim.loop !== false) {
               p.animFrame++;
 
-              // To prevent non-looping attacks from snapping to IDLE instantly when they reach their last frame,
-              // we add extra visual frame cycles for the last frame (a recovery buffer).
-              // For basic attacks (LIGHT, MEDIUM, HEAVY) or very short animations, we keep it 0 to avoid freezing.
-              const isBasicAttack = p.comboType === "LIGHT" || p.comboType === "MEDIUM" || p.comboType === "HEAVY";
-              const isShortAnim = anim.frames <= 2;
-              const recoveryBuffer = (isShortAnim || isBasicAttack) ? 0 : 3;
-
-              const finishBound =
-                anim.loop !== false
-                  ? anim.frames
-                  : anim.frames + recoveryBuffer;
+              const finishBound = anim.frames;
 
               if (p.animFrame >= finishBound) {
                 p.animFrame = anim.loop !== false ? 0 : anim.frames - 1;
@@ -8573,11 +8785,15 @@ export class GameEngine {
 
         if (isDodgeableAttack) {
           // MUI Dodge Trigger
-          defender.state = PlayerState.MUI_DODGE;
+          if (defender.data.phasedMoves?.['INSTINTO']) {
+            MoveManager.getInstance().startMove(defender, 'INSTINTO');
+          } else {
+            defender.state = PlayerState.MUI_DODGE;
+            defender.animFrame = 0;
+            defender.animTimer = 0;
+            defender.animFinished = false;
+          }
           defender.invincibleTimer = 45; 
-          defender.animFrame = 0;
-          defender.animTimer = 0;
-          defender.animFinished = false;
 
           // Store the dodge direction: slide BEHIND the attacker (opposite of attacker's facing direction)
           const dodgeDir = attacker.facingRight ? -1 : 1;
@@ -8944,13 +9160,6 @@ export class GameEngine {
             oppInput &&
             (oppInput.dragonRush || (oppInput.light && oppInput.medium))
           ) {
-            this.particleManager.spawn(
-              "IMPACT_SPARK",
-              hitX,
-              hitY,
-              15,
-              "#ffffff",
-            );
             attacker.state = PlayerState.IDLE;
             defender.state = PlayerState.IDLE;
             attacker.velocity.x = attacker.facingRight ? -10 : 10;
@@ -8999,7 +9208,6 @@ export class GameEngine {
           defender.facingRight = !attacker.facingRight;
 
           this.camera.addScreenShake(8, 8, "PERLIN", 1.0);
-          this.particleManager.spawn("IMPACT_SPARK", hitX, hitY, 10);
         }
 
         const isFacingAttacker =
@@ -9158,7 +9366,8 @@ export class GameEngine {
             defender.ataque = false;
             defender.stunTimer = GUARD_BREAK_STUN;
             defender.velocity.x = attacker.facingRight ? 15 : -15; // Forced recoil / pushback
-            this.particleManager.spawnHitSpark(hitX, hitY, true);
+            this.particleManager.spawnGuardBreak(defender.x + defender.width / 2, defender.y + defender.height / 2);
+            this.particleManager.spawnHitSpark(hitX, hitY, 'heavy');
             this.camera.addScreenShake(15, 12, "IMPULSE", 1);
           } else {
             defender.velocity.x = attacker.facingRight ? pushbackForce : -pushbackForce;
@@ -9184,8 +9393,15 @@ export class GameEngine {
           defender.takeDamage(damage);
           this.triggerDamageVoice(defender);
 
+          const hitSparkType: 'light' | 'medium' | 'heavy' | 'beans' = 
+            (attacker.comboType as string) === "BEANS" ? 'beans' :
+            (attacker.comboType === "HEAVY" || isFinisher) ? 'heavy' : 
+            (attacker.comboType === "MEDIUM" ? 'medium' : 'light');
+
+          const attackerOwnerId = attacker === this.player1 ? "p1" : "p2";
+
           if (hasArmor) {
-            this.particleManager.spawnHitSpark(hitX, hitY, true);
+            this.particleManager.spawnHitSpark(hitX, hitY, hitSparkType, attackerOwnerId);
             this.camera.addScreenShake(6, 4, "IMPULSE", 0.8);
             try {
               AudioManager.getInstance().playSFX("heavy_hit");
@@ -9247,8 +9463,12 @@ export class GameEngine {
               }
             }
           }
-          // Removed hitstop
-          this.particleManager.spawnHitSpark(hitX, hitY, isFinisher);
+          // Spawn hit spark gif for the attack impact
+          if ((attacker.state as any) !== PlayerState.DRAGON_RUSH && 
+              (attacker.state as any) !== PlayerState.DRAGON_COMBO && 
+              attacker.comboType !== "DRAGON_RUSH") {
+            this.particleManager.spawnHitSpark(hitX, hitY, hitSparkType, attackerOwnerId);
+          }
         }
 
         // Combos no chão criam pedras apenas quando combo colidir no oponente!
@@ -9415,6 +9635,14 @@ export class GameEngine {
     this.counterAttackType = type;
     this.dummyController.setCounterAttackType(type);
   }
+  public setCpuWinStreak(streak: number) {
+    if (this.aiController) {
+      this.aiController.setWinStreak(streak);
+    }
+    if (this.p1AiController) {
+      this.p1AiController.setWinStreak(streak);
+    }
+  }
   public reset() {
     this.resetPositions();
     BattleAnnouncerManager.getInstance().reset();
@@ -9472,6 +9700,19 @@ export class GameEngine {
     this.player1.stunTimer = 0;
     this.player1.state = PlayerState.INTRO;
     this.player1.lastState = PlayerState.INTRO;
+    this.player1.ultPhase = 1;
+    this.player1.animFrame = 0;
+    this.player1.animTimer = 0;
+    this.player1.lastAnimKey = '';
+    this.player1.animFinished = false;
+    (this.player1 as any).introFinishDelay = 0;
+    (this.player1 as any).introFinalFadeStarted = false;
+    (this.player1 as any).introSfxStarted = false;
+    (this.player1 as any).introFinalSfxStarted = false;
+    (this.player1 as any).voicePlayed = false;
+    (this.player1 as any).introPhaseTime = 0;
+    (this.player1 as any).introKiChargeVoicePlayed = false;
+    (this.player1 as any).phasedIntroStarted = false;
     this.player1.comboCount = 0;
     this.player1.autoDashUsed = false;
     this.player1.dashCooldownTimer = 0;
@@ -9490,6 +9731,19 @@ export class GameEngine {
     this.player2.stunTimer = 0;
     this.player2.state = PlayerState.INTRO;
     this.player2.lastState = PlayerState.INTRO;
+    this.player2.ultPhase = 1;
+    this.player2.animFrame = 0;
+    this.player2.animTimer = 0;
+    this.player2.lastAnimKey = '';
+    this.player2.animFinished = false;
+    (this.player2 as any).introFinishDelay = 0;
+    (this.player2 as any).introFinalFadeStarted = false;
+    (this.player2 as any).introSfxStarted = false;
+    (this.player2 as any).introFinalSfxStarted = false;
+    (this.player2 as any).voicePlayed = false;
+    (this.player2 as any).introPhaseTime = 0;
+    (this.player2 as any).introKiChargeVoicePlayed = false;
+    (this.player2 as any).phasedIntroStarted = false;
     this.player2.comboCount = 0;
     this.player2.autoDashUsed = false;
     this.player2.dashCooldownTimer = 0;

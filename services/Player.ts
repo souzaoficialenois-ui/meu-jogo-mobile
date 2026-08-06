@@ -1,6 +1,7 @@
 import { Vector2, Rect, PlayerState, CharacterData, InputState } from "../types";
 import { AudioManager } from "./AudioManager";
 import { CharacterStateMachine } from "./CharacterStateMachine";
+import { AnimationQueueManager } from "./AnimationQueueManager";
 import {
   MAX_HP,
   PLAYER_WIDTH,
@@ -49,6 +50,7 @@ export class Player {
   airComboLockout: boolean = false;
   gravityDisabledTimer: number = 0;
   public input: InputState | null = null;
+  public hasJumped: boolean = false;
 
   private _state: PlayerState = PlayerState.INTRO;
   public lastState: PlayerState = PlayerState.INTRO;
@@ -84,6 +86,15 @@ export class Player {
       newValue === PlayerState.FALLING_HIT;
 
     if (isHitOrStun) {
+      // Check for armor in phased moves without importing MoveManager (prevent circular dependency)
+      if (this.currentPhasedMove && this.currentPhaseIndex >= 0) {
+        const move = this.data.phasedMoves?.[this.currentPhasedMove];
+        const phase = move?.phases[this.currentPhaseIndex];
+        if (phase?.armor) {
+          return; // Armor protects against hit stun states
+        }
+      }
+
       const timeSinceDamage = Date.now() - this.lastDamageTick;
       const alreadyHitOrStun =
         this._state === PlayerState.HIT ||
@@ -119,6 +130,18 @@ export class Player {
 
     this.lastState = this._state;
     this._state = newValue;
+
+    const allowedJumpStates = [
+      PlayerState.JUMPING,
+      PlayerState.FALLING,
+      PlayerState.JUMP_ATTACK,
+      PlayerState.ATTACKING,
+      PlayerState.CROUCH_ATTACK,
+    ];
+
+    if (!allowedJumpStates.includes(newValue)) {
+      this.hasJumped = false;
+    }
 
     if (newValue === PlayerState.SUPER_DASH) {
       this.autoDashUsed = true;
@@ -239,6 +262,23 @@ export class Player {
 
   lastDir: "left" | "right" | null = null;
   lastDirTime: number = 0;
+
+  public resetPhaseAnimationState() {
+    this.animFrame = 0;
+    this.animTimer = 0;
+    this.animFinished = false;
+    this.lastAnimKey = "";
+    (this as any).customAnimFinishedThisFrame = false;
+    (this as any).animFinishedFrameCount = undefined;
+  }
+
+  public enqueueAttack(attackType: string, isCrouching: boolean = false): boolean {
+    return AnimationQueueManager.getInstance().enqueue(this, attackType, isCrouching);
+  }
+
+  public clearAnimationQueue(): void {
+    AnimationQueueManager.getInstance().clear(this);
+  }
   quickDashTimer: number = 0;
   dashCooldownTimer: number = 0;
   quickDashCooldownTimer: number = 0;
@@ -361,11 +401,17 @@ export class Player {
     }
   }
 
-  takeDamage(amount: number): number {
+  takeDamage(amount: number, attacker?: Player): number {
     this.quickDashTimer = 0;
+    this.clearAnimationQueue();
     if (this.hp <= 0) return 0;
     if (this.state === PlayerState.TAG_IN || this.state === PlayerState.TAG_OUT)
       return 0;
+
+    let finalAmount = amount;
+    if (attacker && attacker.attackMult) {
+      finalAmount = amount * attacker.attackMult;
+    }
 
     const isSpecialOrUlt =
       this.state === PlayerState.ULTIMATE ||
@@ -376,15 +422,15 @@ export class Player {
         typeof this.comboType === "string" &&
         (this.comboType.startsWith("SPECIAL") || this.comboType === "KI_BLAST"));
 
-    if (amount > 0 && isSpecialOrUlt) {
+    if (finalAmount > 0 && isSpecialOrUlt) {
       this.specialCancelled = true;
     }
 
-    const actual = Math.min(this.hp, amount);
+    const actual = Math.min(this.hp, finalAmount);
 
     // Save previous hp before damage to know how much to convert to blue bar
     const beforeHp = this.hp;
-    this.hp = Math.max(0, this.hp - amount);
+    this.hp = Math.max(0, this.hp - finalAmount);
 
     if (actual > 0) {
       this.lastDamageTick = Date.now();
@@ -608,13 +654,38 @@ export class Player {
           }
         }
 
-        // Ultimates fallback pattern: ULTIMATE_X_Y or SUPER_ESPECIAL_COMBINADO_X
-        const ultMatchObj = upper.match(/^(?:ULTIMATE|SUPER_ESPECIAL)_(\d+)_(\d+)$/);
+        // Intro fallback pattern: INTRO_X, INTRODUCAO_X, INTRODUCAO_1_X, INTRO_1_X
+        const introMatchObj = upper.match(/^(?:INTRO|INTRODUCAO)(?:_1)?_(\d+)$/);
+        if (introMatchObj) {
+          const step = introMatchObj[1];
+          const candidates = [
+            `INTRO_${step}`,
+            `INTRODUCAO_${step}`,
+            `INTRODUCAO_1_${step}`,
+            `INTRO_1_${step}`,
+            `introducao_${step}`,
+            `introducao_1_${step}`,
+            `intro_${step}`,
+            `intro_1_${step}`
+          ];
+
+          for (const cand of candidates) {
+            if (cand in target) return cand;
+            const keysObj = Object.keys(target);
+            const candUpper = cand.toUpperCase();
+            const matched = keysObj.find(k => k.toUpperCase() === candUpper);
+            if (matched) return matched;
+          }
+        }
+
+        // Ultimates fallback pattern: ULTIMATE_X_Y or SUPER_ESPECIAL_COMBINADO_X or ULTIMATE_COMBINADO_X_Y
+        const ultMatchObj = upper.match(/^(?:ULTIMATE|SUPER_ESPECIAL|ULTIMATE_COMBINADO)_(\d+)_(\d+)$/);
         if (ultMatchObj) {
           const x = ultMatchObj[1];
           const y = ultMatchObj[2];
           
           const candidates = [
+            `ULTIMATE_${x}_${y}`,
             `Ultimate_${x}_${y}`,
             `Ultimate_Parte${x}_${y}`,
             `Ultimate_${x}_Parte${x}_${y}`,
@@ -624,7 +695,21 @@ export class Player {
           ];
 
           if (x === "3") {
-            candidates.push(`SUPER_ESPECIAL_COMBINADO_${y}`, `Ultimate_Parte3_${y}`);
+            candidates.push(
+              `ULTIMATE_3_${y}`,
+              `Ultimate_3_${y}`,
+              `SUPER_ESPECIAL_COMBINADO_${y}`,
+              `Ultimate_Parte3_${y}`,
+              `ultimate_combinado_${y}`,
+              `ULTIMATE_COMBINADO_${y}`,
+              `ultimate_combinado_1_${y}`,
+              `ULTIMATE_COMBINADO_1_${y}`
+            );
+          } else {
+            candidates.push(
+              `ultimate_combinado_${x}_${y}`,
+              `ULTIMATE_COMBINADO_${x}_${y}`
+            );
           }
 
           for (const cand of candidates) {

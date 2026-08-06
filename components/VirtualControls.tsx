@@ -1093,7 +1093,7 @@ const RadialSkillsButton = React.memo(({
                 </>
               ) : (
                 <div className="w-full h-full flex items-center justify-center relative filter drop-shadow-md">
-                  {React.cloneElement(iconMap["special"] as React.ReactElement, { className: "w-[65%] h-[65%] object-contain pointer-events-none" })}
+                  {React.cloneElement(iconMap["special"] as React.ReactElement<any>, { className: "w-[65%] h-[65%] object-contain pointer-events-none" })}
                 </div>
               )}
             </div>

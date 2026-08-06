@@ -4,21 +4,37 @@ import { Kuririn_Beams } from "./beams/Kuririn_Beams";
 const URLS = {
   agachado: "/Assets/personagens/kuririn/agachado.gif",
   aterrissagem: "/Assets/personagens/kuririn/aterrissagem.gif",
-  caindo: "/Assets/personagens/kuririn/caindo.gif",
+  caindo: "/Assets/personagens/kuririn/aterrissagem.gif",
   carregando_ki_1: "/Assets/personagens/kuririn/carregando_ki_1.gif",
   carregando_ki_2: "/Assets/personagens/kuririn/carregando_ki_2.gif",
   carregando_ki_3: "/Assets/personagens/kuririn/carregando_ki_3.gif",
-  combo_forte: "/Assets/personagens/kuririn/combo_forte.gif",
-  combo_forte_ar: "/Assets/personagens/kuririn/combo_forte_ar.gif",
+  combo_forte: "/Assets/personagens/kuririn/especial_1_1.gif",
+  combo_forte_ar: "/Assets/personagens/kuririn/especial_1_2.gif",
 
-  hit_light_1: "/Assets/personagens/kuririn/hit_light_1_face_hit.png",
-  hit_light_2: "/Assets/personagens/kuririn/hit_light_2_body_hit.png",
-  hit_light_3: "/Assets/personagens/kuririn/hit_light_3_recoil.png",
-  hit_medium_1: "/Assets/personagens/kuririn/hit_medium_1_stagger.png",
-  hit_medium_2: "/Assets/personagens/kuririn/hit_medium_2_body_recoil.png",
-  hit_medium_3: "/Assets/personagens/kuririn/hit_medium_3_knockback.png",
-  hit_heavy_start: "/Assets/personagens/kuririn/hit_heavy_blowback_start.png",
-  hit_heavy_air: "/Assets/personagens/kuririn/hit_heavy_blowback_air.png",
+  hit_light: "/Assets/personagens/kuririn/hit_light.gif",
+  hit_medium: "/Assets/personagens/kuririn/hit_medium.gif",
+  hit_heavy: "/Assets/personagens/kuririn/hit_heavy.gif",
+  hit_air: "/Assets/personagens/kuririn/hit_air.gif",
+  hit_launch: "/Assets/personagens/kuririn/hit_launch.gif",
+  hit_bounce: "/Assets/personagens/kuririn/hit_bounce.gif",
+  hit_grabbed: "/Assets/personagens/kuririn/hit_grabbed.gif",
+  hit_ground_stun: "/Assets/personagens/kuririn/hit_ground_stun.gif",
+  hit_ground_crash: "/Assets/personagens/kuririn/hit_ground_crash.gif",
+  hit_air_fall: "/Assets/personagens/kuririn/hit_air_fall.gif",
+
+  stand_light_1: "/Assets/personagens/kuririn/stand_light_1.gif",
+  stand_light_2: "/Assets/personagens/kuririn/stand_light_2.gif",
+  stand_light_3: "/Assets/personagens/kuririn/stand_light_3.gif",
+  stand_medium_1: "/Assets/personagens/kuririn/stand_medium_1.gif",
+  stand_heavy_1: "/Assets/personagens/kuririn/stand_heavy_1.gif",
+  crouch_light_1: "/Assets/personagens/kuririn/crouch_light_1.gif",
+  crouch_medium_1: "/Assets/personagens/kuririn/crouch_medium_1.gif",
+  crouch_heavy_1: "/Assets/personagens/kuririn/crouch_heavy_1.gif",
+  air_light_1: "/Assets/personagens/kuririn/air_light_1.gif",
+  air_medium_1_1: "/Assets/personagens/kuririn/air_medium_1_1.gif",
+  air_medium_1_2: "/Assets/personagens/kuririn/air_medium_1_2.gif",
+  air_heavy_1: "/Assets/personagens/kuririn/air_heavy_1.gif",
+  air_heavy_up_1: "/Assets/personagens/kuririn/air_heavy_up_1.gif",
 
   defesa: "/Assets/personagens/kuririn/defesa.gif",
   defesa_agachado: "/Assets/personagens/kuririn/defesa_agachado.gif",
@@ -239,49 +255,68 @@ export const Kuririn: CharacterData = {
 
       [PlayerState.CHARGE_START]: createGifAnim(URLS.carregando_ki_1, false),
       [PlayerState.CHARGING]: {
-        imageUrl: URLS.carregando_ki_2,
-        frames: 1,
-        frameWidth: 29,
-        frameHeight: 34,
-        isGif: true,
-        speed: 5,
-        loop: true,
-        scale: 2.2,
-        offsetX: 0,
-        offsetY: 0,
-        auraConfigKey: "CHAVE_AURA_004"
+        "imageUrl": "/Assets/personagens/kuririn/carregando_ki_2.gif",
+        "frames": 1,
+        "frameWidth": 29,
+        "frameHeight": 34,
+        "isGif": true,
+        "speed": 5,
+        "loop": true,
+        "scale": 2.2,
+        "offsetX": 0,
+        "offsetY": 0,
+        "auraConfigKey": "CHAVE_AURA_004"
       },
       [PlayerState.CHARGE_END]: createGifAnim(URLS.carregando_ki_3, false),
 
-      [PlayerState.HIT]: createGifAnim(URLS.hit_light_1, false),
-      [PlayerState.HIT_2]: createGifAnim(URLS.hit_medium_1, false),
-      [PlayerState.HIT_3]: createGifAnim(URLS.hit_heavy_start, false),
-      HIT_HIGH_LIGHT: createGifAnim(URLS.hit_light_1, false),
-      HIT_HIGH_MEDIUM: createGifAnim(URLS.hit_medium_1, false),
-      HIT_HIGH_HARD: createGifAnim(URLS.hit_heavy_start, false),
-      HIT_LOW_LIGHT: createGifAnim(URLS.hit_light_2, false),
-      HIT_LOW_HARD: createGifAnim(URLS.hit_medium_2, false),
-      CROUCH_HIT: createGifAnim(URLS.hit_light_2, false),
-      AIR_HIT: createGifAnim(URLS.hit_heavy_air, false),
-      AIR_HIT_START: createGifAnim(URLS.hit_heavy_start, false),
-      GROUND_BOUNCE: createGifAnim(URLS.caindo, false),
+      [PlayerState.HIT]: createGifAnim(URLS.hit_light, false),
+      [PlayerState.HIT_2]: createGifAnim(URLS.hit_medium, false),
+      [PlayerState.HIT_3]: createGifAnim(URLS.hit_heavy, false),
+      HIT_HIGH_LIGHT: createGifAnim(URLS.hit_light, false),
+      HIT_HIGH_MEDIUM: createGifAnim(URLS.hit_medium, false),
+      HIT_HIGH_HARD: createGifAnim(URLS.hit_heavy, false),
+      HIT_LOW_LIGHT: createGifAnim(URLS.hit_light, false),
+      HIT_LOW_HARD: createGifAnim(URLS.hit_medium, false),
+      CROUCH_HIT: createGifAnim(URLS.hit_light, false),
+      AIR_HIT: createGifAnim(URLS.hit_air, false),
+      AIR_HIT_START: createGifAnim(URLS.hit_heavy, false),
+      AIR_HIT_FALL: createGifAnim(URLS.hit_air_fall, true),
+      HIT_BOUNCE: createGifAnim(URLS.hit_bounce, false),
+      HIT_LAUNCH: createGifAnim(URLS.hit_launch, false),
+      HIT_GRABBED: createGifAnim(URLS.hit_grabbed, true),
+      HIT_GROUND_STUN: createGifAnim(URLS.hit_ground_stun, true),
+      GROUND_BOUNCE: createGifAnim(URLS.hit_bounce, false),
       FALL: createGifAnim(URLS.pulo, true),
-      DOWN_LYING_DOWN: createGifAnim(URLS.aterrissagem, true),
-      [PlayerState.FALLING_HIT]: createGifAnim(URLS.hit_heavy_air, true),
-      [PlayerState.FALLING_HIT_GROUND]: createGifAnim(URLS.aterrissagem, false),
+      DOWN_LYING_DOWN: createGifAnim(URLS.hit_ground_crash, true),
+      [PlayerState.FALLING_HIT]: createGifAnim(URLS.hit_air_fall, true),
+      [PlayerState.FALLING_HIT_GROUND]: createGifAnim(URLS.hit_ground_crash, false),
       LANDING_FALL: createGifAnim(URLS.aterrissagem, false),
-      GROUND_HIT: createGifAnim(URLS.caindo, false),
-      [PlayerState.LAUNCHED]: createGifAnim(URLS.hit_heavy_start, false),
-      [PlayerState.STUNNED]: createGifAnim(URLS.hit_medium_1, false),
-      [PlayerState.GUARD_BREAK]: createGifAnim(URLS.hit_heavy_start, false),
-      [PlayerState.KNOCKED_DOWN]: createGifAnim(URLS.caindo, false),
+      GROUND_HIT: createGifAnim(URLS.hit_ground_crash, false),
+      [PlayerState.LAUNCHED]: createGifAnim(URLS.hit_launch, false),
+      [PlayerState.STUNNED]: createGifAnim(URLS.hit_ground_stun, true),
+      [PlayerState.GUARD_BREAK]: createGifAnim(URLS.hit_heavy, false),
+      [PlayerState.KNOCKED_DOWN]: createGifAnim(URLS.hit_ground_crash, false),
       [PlayerState.GROUND_RECOVERY]: createGifAnim(URLS.aterrissagem, false),
       GET_UP_START: createGifAnim(URLS.aterrissagem, false),
       GET_UP_MIDDLE: createGifAnim(URLS.aterrissagem, false),
       GET_UP_END: createGifAnim(URLS.aterrissagem, false),
       GET_UP: createGifAnim(URLS.aterrissagem, false),
-      GET_UP_AIR: createGifAnim(URLS.hit_light_3, false),
-      LAUNCHED: createGifAnim(URLS.hit_heavy_air, true),
+      GET_UP_AIR: createGifAnim(URLS.hit_air, false),
+      LAUNCHED: createGifAnim(URLS.hit_launch, true),
+
+      STAND_LIGHT_1: createGifAnim(URLS.stand_light_1, false),
+      STAND_LIGHT_2: createGifAnim(URLS.stand_light_2, false),
+      STAND_LIGHT_3: createGifAnim(URLS.stand_light_3, false),
+      STAND_MEDIUM_1: createGifAnim(URLS.stand_medium_1, false),
+      STAND_HEAVY_1: createGifAnim(URLS.stand_heavy_1, false),
+      CROUCH_LIGHT_1: createGifAnim(URLS.crouch_light_1, false),
+      CROUCH_MEDIUM_1: createGifAnim(URLS.crouch_medium_1, false),
+      CROUCH_HEAVY_1: createGifAnim(URLS.crouch_heavy_1, false),
+      AIR_LIGHT_1: createGifAnim(URLS.air_light_1, false),
+      AIR_MEDIUM_1_1: createGifAnim(URLS.air_medium_1_1, false),
+      AIR_MEDIUM_1_2: createGifAnim(URLS.air_medium_1_2, false),
+      AIR_HEAVY_1: createGifAnim(URLS.air_heavy_1, false),
+      AIR_HEAVY_UP_1: createGifAnim(URLS.air_heavy_up_1, false),
 
       [PlayerState.VANISH]: createGifAnim(URLS.teleporte, false),
       [PlayerState.VANISH_APPEAR]: createGifAnim(URLS.teleporte, false),
@@ -322,9 +357,11 @@ export const Kuririn: CharacterData = {
         "offsetY": 84
       },
       Especial_1_2: {
-        ...createGifAnim(URLS.especial_1_2, false),
+        ...createGifAnim(URLS.especial_1_2, false, 5),
         createsBeam: "CHAVE_BEAM_006",
-        effectConfigKey: "CHAVE_EFFECT_TELACHEIA_05_AZUL"
+        effectConfigKey: "CHAVE_EFFECT_TELACHEIA_05_AZUL",
+        offsetX: 0,
+        offsetY: 0
       },
 
       Especial_2_1: createGifAnim(URLS.especial_2_1, false),
@@ -426,8 +463,10 @@ export const Kuririn: CharacterData = {
         fullScreen: false
       },
       ULTIMATE_2_3: {
-        ...createGifAnim(URLS.ultimate_2_3, false),
-        createsBeam: "CHAVE_BEAM_008"
+        ...createGifAnim(URLS.ultimate_2_3, false, 5),
+        createsBeam: "CHAVE_BEAM_008",
+        offsetX: 0,
+        offsetY: 0
       },
       ULTIMATE_2_4: {
         imageUrl: "/Assets/personagens/kuririn/ultimate_2_4.gif",
@@ -485,7 +524,7 @@ export const Kuririn: CharacterData = {
         scale: 0.9,
         offsetX: 0,
         offsetY: 50,
-        zoomType: "ZOOM_IN",
+        zoomType: "IMMEDIATE",
         zoomAmount: 1.5,
         fullScreen: true
       },
@@ -542,8 +581,10 @@ export const Kuririn: CharacterData = {
         cameraFocusX: 60
       },
       ULTIMATE_3_9: {
-        ...createGifAnim(URLS.ultimate_combinado_1_9, false),
-        createsBeam: "CHAVE_BEAM_003"
+        ...createGifAnim(URLS.ultimate_combinado_1_9, false, 5),
+        createsBeam: "CHAVE_BEAM_003",
+        offsetX: 0,
+        offsetY: 0
       },
 
       [PlayerState.SPARKING]: createGifAnim(URLS.sparking, true),
@@ -557,4 +598,65 @@ export const Kuririn: CharacterData = {
     }
   },
   skills: [], // Adicionado para satisfazer a interface CharacterData se necessário
+  phasedMoves: {
+    'STAND_LIGHT_1': {
+        id: 'STAND_LIGHT_1',
+        phases: [{ animation: 'STAND_LIGHT_1', duration: 10, hitboxActive: true, damage: 4, moveX: 2, sfxName: 'attack_light' }]
+    },
+    'STAND_LIGHT_2': {
+        id: 'STAND_LIGHT_2',
+        phases: [{ animation: 'STAND_LIGHT_2', duration: 10, hitboxActive: true, damage: 4, moveX: 2, sfxName: 'attack_light' }]
+    },
+    'STAND_LIGHT_3': {
+        id: 'STAND_LIGHT_3',
+        phases: [{ animation: 'STAND_LIGHT_3', duration: 16, hitboxActive: true, damage: 8, moveX: 8, launchOpponent: { x: 35, y: 0 }, shakeIntensity: 1.5, sfxName: 'attack_medium' }]
+    },
+    'STAND_MEDIUM_1': {
+        id: 'STAND_MEDIUM_1',
+        phases: [{ animation: 'STAND_MEDIUM_1', duration: 14, hitboxActive: true, damage: 10, moveX: 4, sfxName: 'attack_medium' }]
+    },
+    'STAND_HEAVY': {
+        id: 'STAND_HEAVY',
+        phases: [
+            { animation: 'STAND_HEAVY_1', duration: 22, hitboxActive: true, damage: 16, moveX: 10, launchOpponent: { x: 45, y: 0 }, shakeIntensity: 3, sfxName: 'attack_heavy' }
+        ]
+    },
+    'CROUCH_LIGHT': {
+        id: 'CROUCH_LIGHT',
+        phases: [{ animation: 'CROUCH_LIGHT_1', duration: 12, hitboxActive: true, damage: 5, sfxName: 'attack_light' }]
+    },
+    'CROUCH_MEDIUM': {
+        id: 'CROUCH_MEDIUM',
+        phases: [{ animation: 'CROUCH_MEDIUM_1', duration: 16, hitboxActive: true, damage: 10, knockdown: true, sfxName: 'attack_medium' }]
+    },
+    'CROUCH_HEAVY': {
+        id: 'CROUCH_HEAVY',
+        phases: [
+            { animation: 'CROUCH_HEAVY_1', duration: 28, hitboxActive: true, damage: 14, launchOpponent: { x: 40, y: -80 }, velocityJump: { x: 10, y: -6 }, sfxName: 'attack_heavy', armor: true }
+        ]
+    },
+    'AIR_LIGHT': {
+        id: 'AIR_LIGHT',
+        phases: [{ animation: 'AIR_LIGHT_1', duration: 10, hitboxActive: true, damage: 5, velocityJump: { x: 3, y: -4 }, suspendGravity: true, suspendOpponent: true, sfxName: 'attack_light' }]
+    },
+    'AIR_MEDIUM': {
+        id: 'AIR_MEDIUM',
+        phases: [
+            { animation: 'AIR_MEDIUM_1_1', duration: 12, hitboxActive: true, damage: 6, velocityJump: { x: 4, y: 0 }, suspendGravity: true, suspendOpponent: true, sfxName: 'attack_medium' },
+            { animation: 'AIR_MEDIUM_1_2', duration: 12, hitboxActive: true, damage: 6, velocityJump: { x: 4, y: 0 }, suspendGravity: true, suspendOpponent: true, sfxName: 'attack_medium' }
+        ]
+    },
+    'AIR_HEAVY': {
+        id: 'AIR_HEAVY',
+        phases: [
+            { animation: 'AIR_HEAVY_1', duration: 20, hitboxActive: true, damage: 15, moveX: 10, launchOpponent: { x: 40, y: 40 }, knockdown: true, sfxName: 'attack_heavy' }
+        ]
+    },
+    'AIR_HEAVY_UP': {
+        id: 'AIR_HEAVY_UP',
+        phases: [
+            { animation: 'AIR_HEAVY_UP_1', duration: 20, hitboxActive: true, damage: 15, moveX: 10, launchOpponent: { x: 30, y: -90 }, sfxName: 'attack_heavy' }
+        ]
+    }
+  }
 };

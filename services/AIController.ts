@@ -1,6 +1,7 @@
 
 import { PlayerState, InputState, Rect } from '../types';
 import { MAX_KI, KI_BLAST_COST, MOVE_SPEED, ATTACK_WIDTH, MAX_HP } from '../constants';
+import { CpuStreakManager } from './CpuStreakManager';
 
 export enum AIState {
     IDLE = 'IDLE',
@@ -44,6 +45,7 @@ export class AIController {
     
     private difficultyLevel: AIDifficulty;
     private profile: AIProfile;
+    private winStreak: number = 0;
 
     // Training dummy state variables
     private trainingBlockActionTimer: number = 0;
@@ -59,21 +61,75 @@ export class AIController {
         assist1: false, assist2: false, vanish: false, transform: false, fusion: false, dragonRush: false
     };
 
-    constructor(difficultyLevel: AIDifficulty = 'HARD') {
+    constructor(difficultyLevel: AIDifficulty = 'HARD', winStreak?: number) {
         this.difficultyLevel = difficultyLevel;
+        this.winStreak = winStreak !== undefined ? Math.max(0, winStreak) : CpuStreakManager.getStreak();
         this.profile = this.getProfile(difficultyLevel);
     }
 
+    public setWinStreak(winStreak: number) {
+        this.winStreak = Math.max(0, winStreak);
+        this.profile = this.getProfile(this.difficultyLevel);
+    }
+
+    public getWinStreak(): number {
+        return this.winStreak;
+    }
+
+    public getEffectiveProfile(): AIProfile {
+        return { ...this.profile };
+    }
+
     private getProfile(diff: AIDifficulty): AIProfile {
+        let base: AIProfile;
         switch (diff) {
-            case 'EASY': return { reactionTime: [30, 50], decisionDelay: [40, 60], comboAccuracy: 0.3, aggressiveness: 0.3, defenseSkill: 0.2, punishRate: 0.1, errorRate: 0.4, openness: 0.5, actionMemorySize: 1 };
-            case 'NORMAL': return { reactionTime: [20, 35], decisionDelay: [25, 40], comboAccuracy: 0.6, aggressiveness: 0.5, defenseSkill: 0.4, punishRate: 0.3, errorRate: 0.2, openness: 0.3, actionMemorySize: 2 };
-            case 'MEDIUM': return { reactionTime: [12, 22], decisionDelay: [15, 25], comboAccuracy: 0.75, aggressiveness: 0.65, defenseSkill: 0.6, punishRate: 0.6, errorRate: 0.1, openness: 0.15, actionMemorySize: 3 };
-            case 'HARD': return { reactionTime: [5, 12], decisionDelay: [5, 12], comboAccuracy: 0.9, aggressiveness: 0.8, defenseSkill: 0.85, punishRate: 0.85, errorRate: 0.05, openness: 0.05, actionMemorySize: 4 };
-            case 'INSANE': return { reactionTime: [1, 3], decisionDelay: [1, 4], comboAccuracy: 1.0, aggressiveness: 0.95, defenseSkill: 1.0, punishRate: 1.0, errorRate: 0.0, openness: 0.0, actionMemorySize: 6 };
-            case 'BOSS': return { reactionTime: [2, 6], decisionDelay: [2, 6], comboAccuracy: 0.95, aggressiveness: 0.95, defenseSkill: 0.9, punishRate: 0.95, errorRate: 0.02, openness: 0.01, actionMemorySize: 5 };
-            default: return this.getProfile('MEDIUM');
+            case 'EASY': base = { reactionTime: [30, 50], decisionDelay: [40, 60], comboAccuracy: 0.3, aggressiveness: 0.3, defenseSkill: 0.2, punishRate: 0.1, errorRate: 0.4, openness: 0.5, actionMemorySize: 1 }; break;
+            case 'NORMAL': base = { reactionTime: [20, 35], decisionDelay: [25, 40], comboAccuracy: 0.6, aggressiveness: 0.5, defenseSkill: 0.4, punishRate: 0.3, errorRate: 0.2, openness: 0.3, actionMemorySize: 2 }; break;
+            case 'MEDIUM': base = { reactionTime: [12, 22], decisionDelay: [15, 25], comboAccuracy: 0.75, aggressiveness: 0.65, defenseSkill: 0.6, punishRate: 0.6, errorRate: 0.1, openness: 0.15, actionMemorySize: 3 }; break;
+            case 'HARD': base = { reactionTime: [5, 12], decisionDelay: [5, 12], comboAccuracy: 0.9, aggressiveness: 0.8, defenseSkill: 0.85, punishRate: 0.85, errorRate: 0.05, openness: 0.05, actionMemorySize: 4 }; break;
+            case 'INSANE': base = { reactionTime: [1, 3], decisionDelay: [1, 4], comboAccuracy: 1.0, aggressiveness: 0.95, defenseSkill: 1.0, punishRate: 1.0, errorRate: 0.0, openness: 0.0, actionMemorySize: 6 }; break;
+            case 'BOSS': base = { reactionTime: [2, 6], decisionDelay: [2, 6], comboAccuracy: 0.95, aggressiveness: 0.95, defenseSkill: 0.9, punishRate: 0.95, errorRate: 0.02, openness: 0.01, actionMemorySize: 5 }; break;
+            default: base = { reactionTime: [12, 22], decisionDelay: [15, 25], comboAccuracy: 0.75, aggressiveness: 0.65, defenseSkill: 0.6, punishRate: 0.6, errorRate: 0.1, openness: 0.15, actionMemorySize: 3 }; break;
         }
+
+        if (this.winStreak <= 0) {
+            return base;
+        }
+
+        // Gradual adjustment after player win streak
+        const streak = this.winStreak;
+
+        // Boost aggressiveness gradually: +0.06 per win streak, capping at +0.40
+        const aggBoost = Math.min(0.40, streak * 0.06);
+
+        // Boost combo accuracy, defense skill, and punish rate: +0.05 per win streak
+        const comboBoost = Math.min(0.35, streak * 0.05);
+        const defBoost = Math.min(0.35, streak * 0.05);
+        const punishBoost = Math.min(0.35, streak * 0.05);
+
+        // Reduce error rate and openness (fewer mistakes and pauses)
+        const errReduce = Math.min(base.errorRate, streak * 0.03);
+        const openReduce = Math.min(base.openness, streak * 0.04);
+
+        // Faster reaction time (fewer frames delay)
+        const rx0 = Math.max(1, Math.round(base.reactionTime[0] - streak * 1.5));
+        const rx1 = Math.max(2, Math.round(base.reactionTime[1] - streak * 2.0));
+
+        // Faster decision delay (fewer frames between AI decisions)
+        const dec0 = Math.max(1, Math.round(base.decisionDelay[0] - streak * 1.5));
+        const dec1 = Math.max(3, Math.round(base.decisionDelay[1] - streak * 2.0));
+
+        return {
+            reactionTime: [rx0, rx1],
+            decisionDelay: [dec0, dec1],
+            comboAccuracy: Math.min(1.0, base.comboAccuracy + comboBoost),
+            aggressiveness: Math.min(1.0, base.aggressiveness + aggBoost),
+            defenseSkill: Math.min(1.0, base.defenseSkill + defBoost),
+            punishRate: Math.min(1.0, base.punishRate + punishBoost),
+            errorRate: Math.max(0.0, base.errorRate - errReduce),
+            openness: Math.max(0.0, base.openness - openReduce),
+            actionMemorySize: Math.min(6, base.actionMemorySize + Math.floor(streak / 2))
+        };
     }
 
     public update(ai: any, target: any, projectiles: any[] = [], engine?: any, opponentInput?: any): InputState {
@@ -451,6 +507,14 @@ export class AIController {
             if (ai.data?.level >= 15) {
                 weights['ULTIMATE_2'] = dist < 200 ? 40 : 5;
             }
+        }
+
+        if (this.winStreak > 0) {
+            const streakBonus = Math.min(1.0, this.winStreak * 0.15);
+            if (weights['SUPER_DASH'] !== undefined) weights['SUPER_DASH'] += 15 * streakBonus;
+            if (weights['DASH_FWD'] !== undefined) weights['DASH_FWD'] += 10 * streakBonus;
+            if (weights['ATTACK_L'] !== undefined) weights['ATTACK_L'] += 10 * streakBonus;
+            if (weights['VANISH'] !== undefined) weights['VANISH'] += 8 * streakBonus;
         }
 
         return weights as Record<ActionCategory, number>;
